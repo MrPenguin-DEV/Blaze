@@ -202,6 +202,11 @@ impl BlazeApp {
             ui.add_space(12.0);
             ui.heading(egui::RichText::new("BLAZE").strong().size(22.0));
             ui.label(egui::RichText::new("RUST WORKSPACE").small().weak());
+            ui.label(
+                egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                    .small()
+                    .color(egui::Color32::LIGHT_BLUE),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(egui::RichText::new("NATIVE · GPU UI · LOCAL-FIRST").small().weak());
                 ui.add_space(12.0);
