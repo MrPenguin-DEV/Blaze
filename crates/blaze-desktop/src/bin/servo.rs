@@ -10,7 +10,7 @@ use std::error::Error;
 use std::rc::Rc;
 
 use blaze_browser::normalize_address;
-use blaze_profile::{PermissionDecision, PermissionKind, SitePermission};
+use blaze_profile::{PermissionDecision, PermissionKind, SessionTab, SitePermission};
 use embedder_traits::EventLoopWaker;
 use euclid::Scale;
 use servo::{
@@ -41,7 +41,37 @@ fn main() -> Result<(), Box<dyn Error>> {
     let requested = env::args()
         .nth(1)
         .unwrap_or_else(|| "https://example.com/".to_owned());
-    let start_url = normalize_address(&requested)?;
+    let fallback_url = normalize_address(&requested)?;
+
+    let mut restored_tabs = env::var("BLAZE_SESSION_TABS")
+        .ok()
+        .and_then(|json| serde_json::from_str::<Vec<SessionTab>>(&json).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|tab| {
+            let url = normalize_address(&tab.url).ok()?;
+            Some(ServoTab {
+                title: tab.title,
+                url: url.to_string(),
+                pinned: tab.pinned,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if restored_tabs.is_empty() {
+        restored_tabs.push(ServoTab {
+            title: fallback_url.host_str().unwrap_or("New Tab").to_owned(),
+            url: fallback_url.to_string(),
+            pinned: false,
+        });
+    }
+
+    let active_tab = env::var("BLAZE_ACTIVE_TAB")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0)
+        .min(restored_tabs.len() - 1);
+    let start_url = Url::parse(&restored_tabs[active_tab].url)?;
 
     let event_loop = EventLoop::<WakerEvent>::with_user_event().build()?;
     let mut app = App::new(&event_loop, start_url);
@@ -53,6 +83,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 struct ServoTab {
     title: String,
     url: String,
+    pinned: bool,
 }
 
 struct AppState {
@@ -87,6 +118,7 @@ impl AppState {
         self.tabs.borrow_mut().push(ServoTab {
             title: "New Tab".to_owned(),
             url: url.to_string(),
+            pinned: false,
         });
         let index = self.tabs.borrow().len() - 1;
         self.active_tab.set(index);
@@ -101,9 +133,17 @@ impl AppState {
         let mut tabs = self.tabs.borrow_mut();
         if tabs.len() > 1 {
             let index = self.active_tab.get().min(tabs.len() - 1);
+            if tabs[index].pinned {
+                self.window.set_title("Pinned tab cannot be closed — Blaze");
+                return;
+            }
             tabs.remove(index);
             self.active_tab.set(index.min(tabs.len() - 1));
         } else if let Some(tab) = tabs.first_mut() {
+            if tab.pinned {
+                self.window.set_title("Pinned tab cannot be closed — Blaze");
+                return;
+            }
             tab.title = "New Tab".to_owned();
             tab.url = "about:blank".to_owned();
         }
@@ -120,6 +160,16 @@ impl AppState {
             }
             Err(error) => warn!(?error, "Could not restore URL after closing a Blaze tab"),
         }
+        self.update_window_title();
+    }
+
+    fn toggle_active_tab_pin(&self) {
+        let mut tabs = self.tabs.borrow_mut();
+        let index = self.active_tab.get().min(tabs.len().saturating_sub(1));
+        if let Some(tab) = tabs.get_mut(index) {
+            tab.pinned = !tab.pinned;
+        }
+        drop(tabs);
         self.update_window_title();
     }
 
@@ -262,6 +312,11 @@ impl AppState {
 
         if control && lower_character == "w" {
             self.close_active_tab();
+            return true;
+        }
+
+        if control && lower_character == "p" {
+            self.toggle_active_tab_pin();
             return true;
         }
 
@@ -415,11 +470,30 @@ impl ApplicationHandler<WakerEvent> for App {
             rendering_context,
             webview: RefCell::new(None),
             current_url: RefCell::new(initial_url.to_string()),
-            tabs: RefCell::new(vec![ServoTab {
-                title: initial_url.host_str().unwrap_or("New Tab").to_owned(),
-                url: initial_url.to_string(),
-            }]),
-            active_tab: Cell::new(0),
+            tabs: RefCell::new(
+                env::var("BLAZE_SESSION_TABS")
+                    .ok()
+                    .and_then(|json| serde_json::from_str::<Vec<SessionTab>>(&json).ok())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|tab| {
+                        let url = normalize_address(&tab.url).ok()?;
+                        Some(ServoTab {
+                            title: tab.title,
+                            url: url.to_string(),
+                            pinned: tab.pinned,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            ),
+            active_tab: Cell::new(
+                env::var("BLAZE_ACTIVE_TAB")
+                    .ok()
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(0)
+            ),
             cursor_position: Cell::new((0.0, 0.0)),
             modifiers: Cell::new(ModifiersState::empty()),
             address_editing: Cell::new(false),
@@ -429,6 +503,15 @@ impl ApplicationHandler<WakerEvent> for App {
                 .and_then(|json| serde_json::from_str::<Vec<SitePermission>>(&json).ok())
                 .unwrap_or_default(),
         });
+
+        if state.tabs.borrow().is_empty() {
+            state.tabs.borrow_mut().push(ServoTab {
+                title: initial_url.host_str().unwrap_or("New Tab").to_owned(),
+                url: initial_url.to_string(),
+                pinned: false,
+            });
+        }
+        state.active_tab.set(state.active_tab.get().min(state.tabs.borrow().len() - 1));
 
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
             .url(initial_url)
