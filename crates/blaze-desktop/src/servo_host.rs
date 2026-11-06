@@ -14,7 +14,7 @@ use blaze_profile::{PermissionDecision, PermissionKind, SessionTab, SitePermissi
 use embedder_traits::EventLoopWaker;
 use euclid::Scale;
 use servo::{
-    webview_delegate::{NavigationRequest, PermissionRequest},
+    NavigationRequest, PermissionRequest,
     InputEvent, Key, KeyState, KeyboardEvent, Modifiers as ServoModifiers,
     MouseButton as ServoMouseButton, MouseButtonAction, MouseButtonEvent,
     MouseLeftViewportEvent, MouseMoveEvent, NamedKey, PermissionFeature,
