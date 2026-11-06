@@ -47,11 +47,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[derive(Clone, Debug)]
+struct ServoTab {
+    title: String,
+    url: String,
+}
+
 struct AppState {
     window: Window,
     servo: Servo,
     rendering_context: Rc<WindowRenderingContext>,
     webview: RefCell<Option<WebView>>,
+    tabs: RefCell<Vec<ServoTab>>,
+    active_tab: Cell<usize>,
     current_url: RefCell<String>,
     cursor_position: Cell<(f64, f64)>,
     modifiers: Cell<ModifiersState>,
@@ -60,6 +68,85 @@ struct AppState {
 }
 
 impl AppState {
+    fn update_window_title(&self) {
+        let tabs = self.tabs.borrow();
+        if tabs.is_empty() {
+            self.window.set_title("Blaze");
+            return;
+        }
+        let index = self.active_tab.get().min(tabs.len() - 1);
+        let tab = &tabs[index];
+        self.window.set_title(&format!("{} ({}/{}) — Blaze", tab.title, index + 1, tabs.len()));
+    }
+
+    fn new_tab(&self) {
+        let url = Url::parse("about:blank").expect("about:blank is a valid URL");
+        self.tabs.borrow_mut().push(ServoTab {
+            title: "New Tab".to_owned(),
+            url: url.to_string(),
+        });
+        let index = self.tabs.borrow().len() - 1;
+        self.active_tab.set(index);
+        *self.current_url.borrow_mut() = url.to_string();
+        if let Some(webview) = self.webview.borrow().as_ref() {
+            webview.load(url);
+        }
+        self.update_window_title();
+    }
+
+    fn close_active_tab(&self) {
+        let mut tabs = self.tabs.borrow_mut();
+        if tabs.len() > 1 {
+            let index = self.active_tab.get().min(tabs.len() - 1);
+            tabs.remove(index);
+            self.active_tab.set(index.min(tabs.len() - 1));
+        } else if let Some(tab) = tabs.first_mut() {
+            tab.title = "New Tab".to_owned();
+            tab.url = "about:blank".to_owned();
+        }
+        let index = self.active_tab.get();
+        let target = tabs.get(index).map(|tab| tab.url.clone()).unwrap_or_else(|| "about:blank".to_owned());
+        drop(tabs);
+
+        match Url::parse(&target) {
+            Ok(url) => {
+                *self.current_url.borrow_mut() = url.to_string();
+                if let Some(webview) = self.webview.borrow().as_ref() {
+                    webview.load(url);
+                }
+            }
+            Err(error) => warn!(?error, "Could not restore URL after closing a Blaze tab"),
+        }
+        self.update_window_title();
+    }
+
+    fn cycle_tab(&self, backwards: bool) {
+        let count = self.tabs.borrow().len();
+        if count < 2 {
+            return;
+        }
+        let current = self.active_tab.get().min(count - 1);
+        let next = if backwards {
+            (current + count - 1) % count
+        } else {
+            (current + 1) % count
+        };
+        self.active_tab.set(next);
+        if let Some(tab) = self.tabs.borrow().get(next) {
+            let url_text = tab.url.clone();
+            match Url::parse(&url_text) {
+                Ok(url) => {
+                    *self.current_url.borrow_mut() = url.to_string();
+                    if let Some(webview) = self.webview.borrow().as_ref() {
+                        webview.load(url);
+                    }
+                }
+                Err(error) => warn!(?error, "Could not load tab URL during tab switch"),
+            }
+        }
+        self.update_window_title();
+    }
+
     fn webview_point(&self) -> servo::WebViewPoint {
         let (x, y) = self.cursor_position.get();
         DevicePoint::new(x as f32, y as f32).into()
@@ -96,8 +183,12 @@ impl AppState {
         match normalize_address(&requested) {
             Ok(url) => {
                 *self.current_url.borrow_mut() = url.to_string();
+                if let Some(tab) = self.tabs.borrow_mut().get_mut(self.active_tab.get()) {
+                    tab.url = url.to_string();
+                    tab.title = url.host_str().unwrap_or("New Tab").to_owned();
+                }
                 self.address_editing.set(false);
-                self.window.set_title(&format!("{} — Blaze", url));
+                self.update_window_title();
                 if let Some(webview) = self.webview.borrow().as_ref() {
                     webview.load(url);
                 }
@@ -161,6 +252,21 @@ impl AppState {
             return true;
         }
 
+        if control && lower_character == "t" {
+            self.new_tab();
+            return true;
+        }
+
+        if control && lower_character == "w" {
+            self.close_active_tab();
+            return true;
+        }
+
+        if control && matches!(event.logical_key, WinitKey::Named(WinitNamedKey::Tab)) {
+            self.cycle_tab(modifiers.shift_key());
+            return true;
+        }
+
         if alt {
             match &event.logical_key {
                 WinitKey::Named(WinitNamedKey::ArrowLeft) => {
@@ -199,13 +305,19 @@ impl servo::WebViewDelegate for AppState {
         let title = title
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| "New Tab".to_owned());
-        self.window.set_title(&format!("{title} — Blaze"));
+        if let Some(tab) = self.tabs.borrow_mut().get_mut(self.active_tab.get()) {
+            tab.title = title;
+        }
+        self.update_window_title();
     }
 
     fn notify_url_changed(&self, _webview: WebView, url: Url) {
         *self.current_url.borrow_mut() = url.to_string();
+        if let Some(tab) = self.tabs.borrow_mut().get_mut(self.active_tab.get()) {
+            tab.url = url.to_string();
+        }
         if !self.address_editing.get() {
-            self.window.set_title(&format!("{url} — Blaze"));
+            self.update_window_title();
         }
     }
 
@@ -274,6 +386,11 @@ impl ApplicationHandler<WakerEvent> for App {
             rendering_context,
             webview: RefCell::new(None),
             current_url: RefCell::new(initial_url.to_string()),
+            tabs: RefCell::new(vec![ServoTab {
+                title: initial_url.host_str().unwrap_or("New Tab").to_owned(),
+                url: initial_url.to_string(),
+            }]),
+            active_tab: Cell::new(0),
             cursor_position: Cell::new((0.0, 0.0)),
             modifiers: Cell::new(ModifiersState::empty()),
             address_editing: Cell::new(false),
@@ -286,6 +403,7 @@ impl ApplicationHandler<WakerEvent> for App {
             .delegate(state.clone())
             .build();
         *state.webview.borrow_mut() = Some(webview);
+        state.update_window_title();
         state.window.request_redraw();
 
         *self = Self::Running(state);
