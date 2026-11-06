@@ -57,6 +57,15 @@ pub struct HistoryEntry {
     pub visited_unix_seconds: u64,
 }
 
+/// Minimal browser tab data persisted in the encrypted profile. It contains
+/// no renderer memory or process state; tabs are reloaded from their URLs.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SessionTab {
+    pub title: String,
+    pub url: String,
+    pub pinned: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BrowserSettings {
     pub homepage: String,
@@ -87,6 +96,9 @@ pub struct BrowserProfile {
     pub bookmarks: Vec<Bookmark>,
     pub history: Vec<HistoryEntry>,
     pub permissions: Vec<SitePermission>,
+    /// Backward-compatible field added in profile schema version 2.
+    #[serde(default)]
+    pub last_session: Vec<SessionTab>,
 }
 
 #[derive(Debug, Error)]
@@ -189,13 +201,21 @@ impl BrowserProfile {
         self.history.truncate(max_entries);
     }
 
+    pub fn set_last_session(&mut self, tabs: Vec<SessionTab>) {
+        self.last_session = tabs.into_iter().take(100).collect();
+    }
+
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+    }
+
     pub fn save_encrypted(
         &self,
         path: impl AsRef<Path>,
         passphrase: &[u8],
     ) -> Result<(), ProfileError> {
         let mut profile = self.clone();
-        profile.schema_version = 1;
+        profile.schema_version = 2;
         let serialized = serde_json::to_vec(&profile)?;
         blaze_vault::write_encrypted(path, passphrase, &serialized)?;
         Ok(())
@@ -207,7 +227,7 @@ impl BrowserProfile {
     ) -> Result<Self, ProfileError> {
         let serialized = blaze_vault::read_encrypted(path, passphrase)?;
         let profile: Self = serde_json::from_slice(&serialized)?;
-        if profile.schema_version > 1 {
+        if profile.schema_version > 2 {
             return Err(ProfileError::UnsupportedSchema(profile.schema_version));
         }
         Ok(profile)
@@ -260,6 +280,29 @@ mod tests {
             profile.set_permission("file:///etc/passwd", PermissionKind::Camera, PermissionDecision::Allow),
             Err(ProfileError::UnsupportedOrigin)
         ));
+    }
+
+    #[test]
+    fn session_metadata_is_capped_and_round_trips() {
+        let mut profile = BrowserProfile::default();
+        profile.set_last_session(vec![
+            SessionTab { title: "First".into(), url: "https://first.example/".into(), pinned: true },
+            SessionTab { title: "Second".into(), url: "https://second.example/".into(), pinned: false },
+        ]);
+        assert_eq!(profile.last_session.len(), 2);
+
+        let path = temp_file();
+        profile.save_encrypted(&path, b"session passphrase").unwrap();
+        let loaded = BrowserProfile::load_encrypted(&path, b"session passphrase").unwrap();
+        assert_eq!(loaded.last_session, profile.last_session);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn older_profile_without_session_field_is_still_readable() {
+        let old = r#"{"schema_version":1,"settings":{"homepage":"about:blank","do_not_track":true,"global_privacy_control":true,"block_third_party_cookies":true,"telemetry_enabled":false,"restore_last_session":true},"bookmarks":[],"history":[],"permissions":[]}"#;
+        let decoded: BrowserProfile = serde_json::from_str(old).unwrap();
+        assert!(decoded.last_session.is_empty());
     }
 
     #[test]
