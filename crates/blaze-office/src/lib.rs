@@ -408,18 +408,18 @@ mod tests {
     #[test]
     fn evaluates_excel_formulas_against_csv_cells() {
         assert_eq!(
-            evaluate_csv_formula("Item,Quantity\\nApples,4\\nPears,6", "=SUM(B2:B3)*2").unwrap(),
+            evaluate_csv_formula("Item,Quantity\nApples,4\nPears,6", "=SUM(B2:B3)*2").unwrap(),
             "20"
         );
         assert_eq!(
-            evaluate_csv_formula("Name,Score\\nAda,90\\nLin,95", "=AVERAGE(B2:B3)").unwrap(),
+            evaluate_csv_formula("Name,Score\nAda,90\nLin,95", "=AVERAGE(B2:B3)").unwrap(),
             "92.5"
         );
     }
 
     #[test]
     fn formula_range_expansion_is_bounded() {
-        let error = evaluate_csv_formula("x\\n1", "=SUM(A1:XFD1048576)").unwrap_err();
+        let error = evaluate_csv_formula("x\n1", "=SUM(A1:XFD1048576)").unwrap_err();
         assert!(matches!(error, OfficeBridgeError::Formula(_)));
     }
 
