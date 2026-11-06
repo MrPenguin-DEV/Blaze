@@ -33,6 +33,7 @@ blaze-browser = { path = "../blaze-browser" }
 blaze-core = { path = "../blaze-core" }
 blaze-vault = { path = "../blaze-vault" }
 blaze-office = { path = "../blaze-office" }
+blaze-profile = { path = "../blaze-profile" }
 eframe.workspace = true
 directories = "6"
 
