@@ -17,6 +17,10 @@
 - WebRTC data-channel Messenger with manual signaling, explicit out-of-band SHA-256 DTLS fingerprint verification, user-supplied STUN/TURN configuration, and optional TURN relay-only candidate policy.
 - GitHub Actions CI for formatting, checking, and tests.
 
+## Beta status
+
+This is an early Linux-first beta, not a stable daily-driver browser. The one downloadable executable contains the shell and optional Servo mode; the page renderer opens in a second native window/context. The inline browser surface, robust background-page freezing, downloads, hardware-video qualification, and cross-device benchmarks are not complete.
+
 ## Important implementation limits
 
 Blaze is not yet a complete, daily-usable browser. An optional Servo host can render pages in a separate native window and forwards common pointer and keyboard input, but it is not embedded in the main shell's tab compositor. The main-shell tab strip does not yet own Servo WebViews or process-level tab isolation. When it launches the browser mode, it now passes its saved tab URLs/titles, pin flags, active index, and the origin-permission snapshot. The Servo host restores those URLs in its own window; this is still not an in-process compositor bridge. Downloads remain pending.
