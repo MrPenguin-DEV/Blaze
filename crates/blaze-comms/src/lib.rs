@@ -11,13 +11,12 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use webrtc::data_channel::DataChannel;
+use webrtc::data_channel::{DataChannel, DataChannelEvent};
 use webrtc::peer_connection::{
-    PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler,
+    PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCSdpType,
     RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceServer, RTCPeerConnectionIceEvent,
     RTCSessionDescription,
 };
-use webrtc::peer_connection::sdp::RTCSdpType;
 
 /// Signaling payloads exchanged through an authenticated out-of-band service.
 /// ICE candidates are sent separately so the connection can use trickle ICE.
@@ -46,6 +45,17 @@ pub enum CommsError {
 
 struct SignalHandler {
     outbound: mpsc::UnboundedSender<SignalingMessage>,
+    inbound: mpsc::UnboundedSender<String>,
+}
+
+async fn forward_data_channel(channel: Arc<dyn DataChannel>, inbound: mpsc::UnboundedSender<String>) {
+    while let Some(event) = channel.poll().await {
+        if let DataChannelEvent::OnMessage(message) = event {
+            if let Ok(text) = String::from_utf8(message.data.to_vec()) {
+                let _ = inbound.send(text);
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -54,6 +64,10 @@ impl PeerConnectionEventHandler for SignalHandler {
         if let Ok(candidate) = event.candidate.to_json() {
             let _ = self.outbound.send(SignalingMessage::Candidate(candidate));
         }
+    }
+
+    async fn on_data_channel(&self, channel: Arc<dyn DataChannel>) {
+        tokio::spawn(forward_data_channel(channel, self.inbound.clone()));
     }
 }
 
@@ -64,6 +78,7 @@ pub struct PeerSession {
     peer: Arc<dyn PeerConnection>,
     data_channel: Arc<dyn DataChannel>,
     outbound_signaling: mpsc::UnboundedReceiver<SignalingMessage>,
+    inbound_messages: mpsc::UnboundedReceiver<String>,
 }
 
 impl PeerSession {
@@ -71,25 +86,31 @@ impl PeerSession {
     /// No public STUN/TURN server is silently selected.
     pub async fn new(config: PeerConfig) -> Result<Self, CommsError> {
         let (signal_tx, signal_rx) = mpsc::unbounded_channel();
-        let configuration = RTCConfigurationBuilder::new()
+        let (message_tx, message_rx) = mpsc::unbounded_channel();
+        let configuration = RTCConfigurationBuilder::default()
             .with_ice_servers(config.ice_servers)
             .build();
 
         let mut builder = PeerConnectionBuilder::new()
             .with_configuration(configuration)
-            .with_handler(Arc::new(SignalHandler { outbound: signal_tx }));
+            .with_handler(Arc::new(SignalHandler {
+                outbound: signal_tx,
+                inbound: message_tx.clone(),
+            }));
 
         if !config.udp_bind_addresses.is_empty() {
             builder = builder.with_udp_addrs(config.udp_bind_addresses);
         }
 
-        let peer = builder.build().await?;
+        let peer: Arc<dyn PeerConnection> = Arc::new(builder.build().await?);
         let data_channel = peer.create_data_channel("blaze-messenger", None).await?;
+        tokio::spawn(forward_data_channel(data_channel.clone(), message_tx));
 
         Ok(Self {
             peer,
             data_channel,
             outbound_signaling: signal_rx,
+            inbound_messages: message_rx,
         })
     }
 
@@ -138,6 +159,24 @@ impl PeerSession {
     /// Forward the result to the authenticated signaling channel.
     pub async fn next_outbound_signaling(&mut self) -> Option<SignalingMessage> {
         self.outbound_signaling.recv().await
+    }
+
+    /// Drains all currently queued ICE candidates without blocking the UI.
+    pub fn drain_outbound_signaling(&mut self) -> Vec<SignalingMessage> {
+        let mut messages = Vec::new();
+        while let Ok(message) = self.outbound_signaling.try_recv() {
+            messages.push(message);
+        }
+        messages
+    }
+
+    /// Drains currently queued UTF-8 messages received over the data channel.
+    pub fn drain_incoming_text(&mut self) -> Vec<String> {
+        let mut messages = Vec::new();
+        while let Ok(message) = self.inbound_messages.try_recv() {
+            messages.push(message);
+        }
+        messages
     }
 
     /// Waits for the data channel to become writable.
