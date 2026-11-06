@@ -1,6 +1,6 @@
 # Blaze implementation status
 
-This document distinguishes code that exists from integrations that are still missing.
+This document distinguishes code that exists from integrations that are still missing. The planned public beta build is `v0.0.1-beta`; it packages one `blaze` executable, with the Servo browser mode enabled for Linux x86_64.
 
 ## Seven implementation areas
 
@@ -8,7 +8,7 @@ This document distinguishes code that exists from integrations that are still mi
 |---|---|---|
 | 1. Rust workspace/core | Implemented | Multi-crate Rust workspace, shared types, memory policy, tab snapshots. |
 | 2. Native shell | Prototype implemented | Native eframe/egui desktop shell rendered through wgpu; no Electron or embedded system WebView. |
-| 3. Browser boundary | Standalone host prototype | A separate optional Servo 0.7 host owns one WebView per tab, normally retains two warm WebViews; pinned background views are exempt from eviction and may raise the count; it evicts older unpinned page heaps, and restores evicted tabs from saved URLs. It supports mouse/keyboard/wheel input, HTTP(S)-only navigation, address editing, back/forward history and Ctrl+T/Ctrl+W/Ctrl+Tab. It remains a separate native window, not the main shell compositor; downloads and live permission prompts remain pending. |
+| 3. Browser boundary | Standalone host prototype | The optional Servo 0.7 mode in the unified Blaze executable owns one WebView per tab, normally retains two warm WebViews; pinned background views are exempt from eviction and may raise the count; it evicts older unpinned page heaps, and restores evicted tabs from saved URLs. It supports mouse/keyboard/wheel input, HTTP(S)-only navigation, address editing, back/forward history and Ctrl+T/Ctrl+W/Ctrl+Tab. It opens a second native window using the same executable, not an inline surface in the main shell; downloads and live permission prompts remain pending. |
 | 4. GPU/media | Partial | wgpu accelerates native controls and bounded WASM canvas/widget output. Servo's optional GStreamer backend is compiled in, but GPU decode selection, GPU-resident frame presentation and YouTube 4K compatibility are not benchmarked. |
 | 5. Tabs/memory | Partial engine integration | Normally two warm Servo WebViews are retained; pinned background views are exempt and may raise the count; older unpinned views are dropped and restored from URL metadata. Hidden views may continue timers/media/network work; true background freezing and RAM telemetry remain. |
 | 6. Privacy/storage | Prototype implemented | Argon2/ChaCha20-Poly1305 encrypted Notes and browser profile, schema-v2 migration, bookmarks, origin-scoped permissions, capped history, and last-session tab/pin restore. A SHA-256 deduplicating quota cache exists. OS keychain, engine permission enforcement, encrypted cookie/cache integration, private-mode teardown, and formal review remain. |
@@ -36,7 +36,7 @@ CI is configured to run formatting, compilation, and tests on each push and pull
 
 ### Real browser engine
 
-The optional standalone Servo host creates one WebView per open tab and retains at most two warm views (active plus one LRU warm view). Older unpinned WebViews are dropped to release page resources and rebuilt from URL/title metadata on revisit; their DOM/JS/history state is not retained. Hidden retained views are only hidden from the compositor and may continue JS timers, network/media work. Remaining browser work is the in-process main-shell compositor bridge, OS/process isolation, real background freezing, downloads, and live permission prompts. Validate builds and real page compatibility on supported operating systems.
+The optional standalone Servo host creates one WebView per open tab and retains at most two warm views (active plus one LRU warm view). Older unpinned WebViews are dropped to release page resources and rebuilt from URL/title metadata on revisit; their DOM/JS/history state is not retained. Hidden retained views are only hidden from the compositor and may continue JS timers, network/media work. Remaining browser work is the inline main-shell compositor bridge, OS/process isolation, real background freezing, downloads, and live permission prompts. Validate builds and real page compatibility on supported operating systems.
 
 ### Hardware video and performance
 
