@@ -14,8 +14,8 @@ use tokio::sync::mpsc;
 use webrtc::data_channel::{DataChannel, DataChannelEvent};
 use webrtc::peer_connection::{
     PeerConnection, PeerConnectionBuilder, PeerConnectionEventHandler, RTCSdpType,
-    RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceServer, RTCPeerConnectionIceEvent,
-    RTCSessionDescription,
+    RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceServer, RTCIceTransportPolicy,
+    RTCPeerConnectionIceEvent, RTCSessionDescription,
 };
 
 /// Signaling payloads exchanged through an authenticated out-of-band service.
@@ -33,6 +33,44 @@ pub enum SignalingMessage {
 pub struct PeerConfig {
     pub ice_servers: Vec<RTCIceServer>,
     pub udp_bind_addresses: Vec<String>,
+    /// Only accept TURN relay candidates. This hides host/reflexive IP
+    /// candidates from the remote peer but requires a working TURN server.
+    pub relay_only: bool,
+}
+
+/// Builds one ICE server from explicit user configuration. A URL may be STUN,
+/// STUNS, TURN, or TURNS. TURN endpoints require non-empty credentials.
+pub fn build_ice_server(
+    urls: Vec<String>,
+    username: String,
+    credential: String,
+) -> Result<RTCIceServer, String> {
+    let urls: Vec<String> = urls.into_iter().map(|url| url.trim().to_owned())
+        .filter(|url| !url.is_empty()).collect();
+    if urls.is_empty() {
+        return Err("At least one STUN/TURN URL is required.".to_owned());
+    }
+
+    let mut needs_turn_credentials = false;
+    for url in &urls {
+        let lower = url.to_ascii_lowercase();
+        if lower.starts_with("turn:") || lower.starts_with("turns:") {
+            needs_turn_credentials = true;
+        } else if !(lower.starts_with("stun:") || lower.starts_with("stuns:")) {
+            return Err(format!("Unsupported ICE URL scheme: {url}"));
+        }
+    }
+
+    if needs_turn_credentials && (username.trim().is_empty() || credential.is_empty()) {
+        return Err("TURN URLs require both a username and a credential.".to_owned());
+    }
+
+    Ok(RTCIceServer {
+        urls,
+        username,
+        credential,
+        ..Default::default()
+    })
 }
 
 #[derive(Debug, Error)]
@@ -87,9 +125,12 @@ impl PeerSession {
     pub async fn new(config: PeerConfig) -> Result<Self, CommsError> {
         let (signal_tx, signal_rx) = mpsc::unbounded_channel();
         let (message_tx, message_rx) = mpsc::unbounded_channel();
-        let configuration = RTCConfigurationBuilder::default()
-            .with_ice_servers(config.ice_servers)
-            .build();
+        let mut configuration = RTCConfigurationBuilder::default()
+            .with_ice_servers(config.ice_servers);
+        if config.relay_only {
+            configuration = configuration.with_ice_transport_policy(RTCIceTransportPolicy::Relay);
+        }
+        let configuration = configuration.build();
 
         let mut builder = PeerConnectionBuilder::new()
             .with_configuration(configuration)
@@ -306,5 +347,40 @@ mod tests {
         let config = PeerConfig::default();
         assert!(config.ice_servers.is_empty());
         assert!(config.udp_bind_addresses.is_empty());
+        assert!(!config.relay_only);
+    }
+
+    #[test]
+    fn accepts_explicit_stun_server_without_credentials() {
+        let server = build_ice_server(
+            vec!["stun:stun.example.org:3478".into()],
+            String::new(),
+            String::new(),
+        )
+        .unwrap();
+        assert_eq!(server.urls, vec!["stun:stun.example.org:3478"]);
+    }
+
+    #[test]
+    fn requires_credentials_for_turn_servers() {
+        assert!(build_ice_server(
+            vec!["turn:turn.example.org:3478".into()],
+            String::new(),
+            String::new(),
+        ).is_err());
+        assert!(build_ice_server(
+            vec!["turns:turn.example.org:5349".into()],
+            "blaze-user".into(),
+            "token".into(),
+        ).is_ok());
+    }
+
+    #[test]
+    fn rejects_non_ice_url_schemes() {
+        assert!(build_ice_server(
+            vec!["https://example.org".into()],
+            String::new(),
+            String::new(),
+        ).is_err());
     }
 }
