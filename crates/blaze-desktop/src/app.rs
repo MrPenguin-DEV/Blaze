@@ -266,7 +266,7 @@ impl BlazeApp {
             #[cfg(feature = "servo-host")]
             if ui.button("Open in Servo").clicked() {
                 match launch_servo(&self.address, &self.profile, &self.tabs, self.active_tab, &self.tab_policy) {
-                    Ok(()) => self.browser_status = "Opened the current address in the separate Servo browser window.".into(),
+                    Ok(()) => self.browser_status = "Opened the page in Blaze's full Servo browser window (same executable).".into(),
                     Err(error) => self.browser_status = format!("Could not launch Servo: {error}"),
                 }
             }
@@ -329,8 +329,8 @@ impl BlazeApp {
                 ui.add_space(18.0);
                 ui.label(egui::RichText::new(&self.browser_status).color(egui::Color32::YELLOW));
                 ui.add_space(12.0);
-                ui.label("Remote pages render in the separate blaze-servo process when built with --features servo-host --bins.");
-                ui.label("The windows use separate rendering contexts; a direct in-process wgpu/Servo texture bridge is still missing.");
+                ui.label("Open a full page renderer with the Open in Servo action. The renderer is a second Blaze window launched from this same executable.");
+                ui.label("Browser rendering still uses Servo's separate OpenGL context; the eframe/wgpu shell does not yet embed the page surface inline.");
             });
         });
 
@@ -1369,7 +1369,7 @@ fn launch_servo(
     tab_policy: &TabManager,
 ) -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    let servo_exe = current_exe.with_file_name(format!("blaze-servo{}", std::env::consts::EXE_SUFFIX));
+    let blaze_exe = current_exe;
 
     // Pass only the active page, minimal tab restore metadata, and site
     // permission snapshot. Never pass profile credentials or browsing history.
@@ -1393,14 +1393,15 @@ fn launch_servo(
     let permission_snapshot = serde_json::to_string(&profile.permissions)
         .map_err(|error| format!("Could not serialize site permissions: {error}"))?;
 
-    std::process::Command::new(&servo_exe)
+    std::process::Command::new(&blaze_exe)
+        .arg("--servo-host")
         .arg(address)
         .env("BLAZE_SITE_PERMISSIONS", permission_snapshot)
         .env("BLAZE_SESSION_TABS", session_snapshot)
         .env("BLAZE_ACTIVE_TAB", active_tab.to_string())
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("{} ({error}). Build with --features servo-host --bins.", servo_exe.display()))
+        .map_err(|error| format!("{} ({error}). Rebuild Blaze with --features servo-host.", blaze_exe.display()))
 }
 
 fn spreadsheet_column_name(mut index: usize) -> String {
