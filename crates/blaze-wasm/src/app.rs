@@ -32,6 +32,22 @@ pub enum WasmAppNode {
     Heading { text: String },
     Text { text: String },
     Button { label: String, action: i32 },
+    /// Normalized GPU-composited rectangle, rendered by Blaze's native wgpu UI.
+    CanvasRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: [u8; 4],
+    },
+    /// Normalized GPU-composited circle, rendered by Blaze's native wgpu UI.
+    CanvasCircle {
+        x: f32,
+        y: f32,
+        radius: f32,
+        color: [u8; 4],
+    },
+    ProgressBar { label: String, fraction: f32 },
 }
 
 #[derive(Debug, Error)]
@@ -219,13 +235,44 @@ fn validate_frame(frame: &WasmAppFrame) -> Result<(), WasmAppError> {
     }
     for node in &frame.nodes {
         let text = match node {
-            WasmAppNode::Heading { text } | WasmAppNode::Text { text } => text,
-            WasmAppNode::Button { label, .. } => label,
+            WasmAppNode::Heading { text } | WasmAppNode::Text { text } => Some(text),
+            WasmAppNode::Button { label, .. } | WasmAppNode::ProgressBar { label, .. } => Some(label),
+            WasmAppNode::CanvasRect { x, y, width, height, .. } => {
+                if ![x, y, width, height].iter().all(|value| value.is_finite())
+                    || *x < 0.0 || *y < 0.0 || *width <= 0.0 || *height <= 0.0
+                    || *x + *width > 1.0 || *y + *height > 1.0
+                {
+                    return Err(WasmAppError::InvalidFrame(
+                        "canvas rectangle coordinates must fit within normalized 0..=1 bounds".to_owned(),
+                    ));
+                }
+                None
+            }
+            WasmAppNode::CanvasCircle { x, y, radius, .. } => {
+                if ![x, y, radius].iter().all(|value| value.is_finite())
+                    || *radius <= 0.0 || *x - *radius < 0.0 || *y - *radius < 0.0
+                    || *x + *radius > 1.0 || *y + *radius > 1.0
+                {
+                    return Err(WasmAppError::InvalidFrame(
+                        "canvas circle must fit within normalized 0..=1 bounds".to_owned(),
+                    ));
+                }
+                None
+            }
         };
-        if text.len() > MAX_TEXT_BYTES {
-            return Err(WasmAppError::InvalidFrame(
-                "a UI text field exceeds 4096 bytes".to_owned(),
-            ));
+        if let Some(text) = text {
+            if text.len() > MAX_TEXT_BYTES {
+                return Err(WasmAppError::InvalidFrame(
+                    "a UI text field exceeds 4096 bytes".to_owned(),
+                ));
+            }
+        }
+        if let WasmAppNode::ProgressBar { fraction, .. } = node {
+            if !fraction.is_finite() || !(0.0..=1.0).contains(fraction) {
+                return Err(WasmAppError::InvalidFrame(
+                    "progress bar fraction must be between 0 and 1".to_owned(),
+                ));
+            }
         }
     }
     Ok(())
