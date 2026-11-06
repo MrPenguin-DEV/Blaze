@@ -6,7 +6,7 @@ The desktop application is written in Rust and uses eframe/egui with its wgpu re
 
 ## Browser engine boundary
 
-Servo is the leading engine candidate. The current adapter contract normalizes user navigation and defines the boundary where engine navigation, lifecycle, and capability reporting belong. The production adapter is not connected yet.
+Servo is the leading engine candidate. The current adapter contract normalizes user navigation and defines the boundary where engine navigation, lifecycle, and capability reporting belong. A standalone Servo host is now connected as an optional binary. It uses one active WebView and a lightweight tab list; switching tabs reloads the saved URL rather than keeping background renderers alive. This host remains separate from the main wgpu UI.
 
 Servo's embedding sequence includes:
 1. An EventLoopWaker that schedules Servo event-loop work.
