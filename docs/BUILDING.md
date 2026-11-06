@@ -102,6 +102,8 @@ to the main egui/wgpu tab surface is not included. Downloads, process-per-site
 isolation, profile-backed permission prompts, and integrated browser tabs are
 still engineering tasks.
 
+Messenger's Network / NAT settings accept optional STUN/TURN URLs, TURN username and credential. Relay-only requires at least one TURN/TURNS URL. It hides host and server-reflexive candidates from the remote peer; it does not hide the connecting IP from the TURN provider. Credentials remain in process memory and are not written to the encrypted profile.
+
 The 50-tab / 50-simultaneous-4K / under-1-GiB request remains a stress target,
 not a guaranteed resource budget. The present Servo window uses one active
 WebView and lightweight URL metadata for tabs; profile tab restoration restores
