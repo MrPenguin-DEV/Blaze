@@ -41,7 +41,7 @@ blaze-core provides a scheduler with foreground, background, and suspended state
 - Private browsing must be ephemeral and cleared when its private session ends.
 - Apply least-privilege site permissions for camera, microphone, location, notifications, clipboard, and downloads.
 - Browser origin isolation and OS process sandboxing are still required.
-- Do not promise end-to-end encryption for messaging until identity, key verification, recovery, multi-device behavior, and protocol review are complete.
+- Messenger verifies the remote SDP's SHA-256 DTLS fingerprint against a value independently confirmed by the user. It supports explicit ICE servers and an optional relay-only candidate policy. Relay-only conceals host/server-reflexive candidates from the remote peer but not from the TURN provider. Fingerprint comparison is a manual peer check, not a durable identity/key-management system. Do not promise complete end-to-end identity, recovery, multi-device security, or protocol review.
 - Avoid custom cryptography.
 
 ## Integrated workspace and Wasm
