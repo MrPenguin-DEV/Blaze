@@ -176,7 +176,7 @@ pub fn parse_csv(input: &str) -> Result<Vec<Vec<String>>, OfficeBridgeError> {
         ));
     }
 
-    if !field.is_empty() || !row.is_empty() || (!input.is_empty() && !input.ends_with(['\n', '\r'])) {
+    if !field.is_empty() || !row.is_empty() || (!input.is_empty() && !(input.ends_with('\n') || input.ends_with('\r'))) {
         row.push(field);
         rows.push(row);
     }
