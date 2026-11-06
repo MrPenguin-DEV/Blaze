@@ -1,0 +1,14 @@
+[package]
+name = "blaze-office"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "DOCX, XLSX and PPTX import/export helpers for Blaze"
+
+[dependencies]
+office_oxide.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
