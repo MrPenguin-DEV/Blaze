@@ -46,4 +46,4 @@ The packaged executable still relies on host graphics libraries, Fontconfig/Free
 
 ## Release workflow
 
-The GitHub Actions workflow `.github/workflows/release.yml` builds the single binary and publishes a GitHub prerelease when the `v0.0.1-beta` tag is pushed. It also supports manual dispatch from the Actions tab.
+The GitHub Actions workflow `.github/workflows/release.yml` builds the single binary and publishes a GitHub prerelease when the `beta/v0.0.1-beta` candidate branch is pushed (the workflow creates the `v0.0.1-beta` tag), or when that tag is pushed directly. It also supports manual dispatch from the Actions tab.
