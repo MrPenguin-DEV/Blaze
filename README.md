@@ -46,8 +46,13 @@ cargo test --workspace
 cargo run -p blaze-desktop
 
 # Optional Servo page renderer and GStreamer media backend
-cargo build -p blaze-desktop --features servo-host --bin blaze
-cargo run -p blaze-desktop --features servo-host --bin blaze
+cargo build --release -p blaze-desktop --features servo-host --bin blaze
+
+# Launch the workspace shell
+./target/release/blaze
+
+# Launch the bundled Servo browser mode directly
+./target/release/blaze --servo-host https://example.com
 ```
 
 The optional Servo mode is built into the same `blaze` binary; it opens its own browser window and OpenGL context. It is not an inline page surface in the shell. This feature is a large native build and requires GStreamer development libraries and runtime plugins for your platform. On Linux, the windowing/graphics development packages required by winit/wgpu may need to be installed for your distribution. Hardware acceleration depends on the graphics driver and backend available on the host.
