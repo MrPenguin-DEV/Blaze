@@ -7,7 +7,7 @@ Current version: 0.2.0 · Native shell prototype · Linux-first development, cro
 ## What is implemented in this repository
 
 - A native Rust desktop shell rendered with egui/eframe and its wgpu graphics backend. It does not use Electron or an embedded system WebView.
-- An optional standalone Servo 0.8 page-renderer binary with mouse, keyboard and wheel input, HTTP(S)-only navigation, a GStreamer media backend, and per-tab WebViews. It retains at most two warm views (active plus one warm tab); older unpinned views are evicted and restored from URL metadata.
+- An optional standalone Servo 0.7 page-renderer binary with mouse, keyboard and wheel input, HTTP(S)-only navigation, a GStreamer media backend, and per-tab WebViews. It retains at most two warm views (active plus one warm tab); older unpinned views are evicted and restored from URL metadata.
 - Browser address validation, safe-scheme filtering, and a strict browser-engine adapter contract.
 - Tab lifecycle policy with foreground/background/suspended states, pinning, unsaved-tab protection, and a configurable live-tab ceiling.
 - A local-file vault using Argon2-derived keys and ChaCha20-Poly1305 authenticated encryption.
