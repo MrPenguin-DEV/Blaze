@@ -10,11 +10,6 @@ description = "Native GPU-rendered desktop shell for Blaze"
 name = "blaze"
 path = "src/main.rs"
 
-[[bin]]
-name = "blaze-servo"
-path = "src/bin/servo.rs"
-required-features = ["servo-host"]
-
 [features]
 default = []
 # Opt-in because Servo pulls in a substantial browser-engine/media dependency tree.
