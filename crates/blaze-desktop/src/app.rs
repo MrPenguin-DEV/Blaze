@@ -265,7 +265,7 @@ impl BlazeApp {
             }
             #[cfg(feature = "servo-host")]
             if ui.button("Open in Servo").clicked() {
-                match launch_servo(&self.address, &self.profile) {
+                match launch_servo(&self.address, &self.profile, &self.tabs, self.active_tab, &self.tab_policy) {
                     Ok(()) => self.browser_status = "Opened the current address in the separate Servo browser window.".into(),
                     Err(error) => self.browser_status = format!("Could not launch Servo: {error}"),
                 }
@@ -1222,16 +1222,43 @@ impl BlazeApp {
 }
 
 #[cfg(feature = "servo-host")]
-fn launch_servo(address: &str, profile: &BrowserProfile) -> Result<(), String> {
+fn launch_servo(
+    address: &str,
+    profile: &BrowserProfile,
+    tabs: &[BrowserTab],
+    active_tab: usize,
+    tab_policy: &TabManager,
+) -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let servo_exe = current_exe.with_file_name(format!("blaze-servo{}", std::env::consts::EXE_SUFFIX));
-    // Only copy permission preferences into the child process. Never pass the
-    // profile passphrase, history, bookmarks, or encrypted profile contents.
+
+    // Pass only the active page, minimal tab restore metadata, and site
+    // permission snapshot. Never pass profile credentials or browsing history.
+    let session_tabs: Vec<SessionTab> = tabs
+        .iter()
+        .map(|tab| {
+            let pinned = tab_policy
+                .entries()
+                .iter()
+                .find(|entry| entry.id() == tab.id)
+                .is_some_and(|entry| entry.snapshot.pinned);
+            SessionTab {
+                title: tab.title.clone(),
+                url: tab.url.clone(),
+                pinned,
+            }
+        })
+        .collect();
+    let session_snapshot = serde_json::to_string(&session_tabs)
+        .map_err(|error| format!("Could not serialize tab metadata: {error}"))?;
     let permission_snapshot = serde_json::to_string(&profile.permissions)
         .map_err(|error| format!("Could not serialize site permissions: {error}"))?;
+
     std::process::Command::new(&servo_exe)
         .arg(address)
         .env("BLAZE_SITE_PERMISSIONS", permission_snapshot)
+        .env("BLAZE_SESSION_TABS", session_snapshot)
+        .env("BLAZE_ACTIVE_TAB", active_tab.to_string())
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("{} ({error}). Build with --features servo-host --bins.", servo_exe.display()))
