@@ -110,7 +110,8 @@ impl AppState {
         }
         let index = self.active_tab.get().min(tabs.len() - 1);
         let tab = &tabs[index];
-        self.window.set_title(&format!("{} ({}/{}) — Blaze", tab.title, index + 1, tabs.len()));
+        let pin = if tab.pinned { "● " } else { "" };
+        self.window.set_title(&format!("{pin}{} ({}/{}) — Blaze", tab.title, index + 1, tabs.len()));
     }
 
     fn new_tab(&self) {
@@ -166,11 +167,19 @@ impl AppState {
     fn toggle_active_tab_pin(&self) {
         let mut tabs = self.tabs.borrow_mut();
         let index = self.active_tab.get().min(tabs.len().saturating_sub(1));
-        if let Some(tab) = tabs.get_mut(index) {
+        let pinned = if let Some(tab) = tabs.get_mut(index) {
             tab.pinned = !tab.pinned;
-        }
+            tab.pinned
+        } else {
+            false
+        };
         drop(tabs);
         self.update_window_title();
+        if pinned {
+            self.window.set_title("Tab pinned — Blaze");
+        } else {
+            self.window.set_title("Tab unpinned — Blaze");
+        }
     }
 
     fn cycle_tab(&self, backwards: bool) {
@@ -484,8 +493,6 @@ impl ApplicationHandler<WakerEvent> for App {
                             pinned: tab.pinned,
                         })
                     })
-                    .collect::<Vec<_>>()
-                    .into_iter()
                     .collect::<Vec<_>>()
             ),
             active_tab: Cell::new(
