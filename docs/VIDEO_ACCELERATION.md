@@ -25,9 +25,9 @@ A YouTube stream may use AV1, VP9 or H.264 depending on negotiation. For smooth 
 
 ## Current Blaze implementation status
 
-- The optional `servo-host` build enables Servo 0.8's `media-gstreamer` backend.
+- The optional `servo-host` build enables Servo 0.7's `media-gstreamer` backend.
 - The native shell's app UI uses eframe/wgpu. Servo renders browser content in its own rendering context in a separate window; there is not yet a zero-copy Servo-to-wgpu texture bridge.
-- The browser host limits warm retained WebViews to two (active plus one warm tab); older unpinned views are dropped and re-created from their saved URL when revisited. This preserves fast switching for a warm tab without keeping an unlimited number of renderer/page heaps.
+- The browser host normally retains two warm WebViews (active plus one unpinned tab); pinned background views are exempt and may raise the count. Older unpinned views are dropped and recreated from their saved URL when revisited. This preserves fast switching for a warm tab without keeping an unlimited number of renderer/page heaps.
 - Hiding a WebView changes its compositor visibility; it is not a guarantee that JavaScript timers, network requests, media or service workers stop. Renderer dropping is the current hard resource reclamation path.
 - YouTube compatibility, GPU decode selection, frame-copy behavior and low-end hardware performance have not been benchmarked in this repository.
 
