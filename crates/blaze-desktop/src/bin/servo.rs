@@ -33,13 +33,13 @@ use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey as WinitNamedKey
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::{Window, WindowId};
 
-fn main() -> Result<(), Box<dyn Error>> {
+pub fn run() -> Result<(), Box<dyn Error>> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install the Rustls crypto provider");
 
     let requested = env::args()
-        .nth(1)
+        .nth(2)
         .unwrap_or_else(|| "https://example.com/".to_owned());
     let fallback_url = normalize_address(&requested)?;
 
