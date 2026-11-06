@@ -420,6 +420,32 @@ impl BlazeApp {
                     blaze_wasm::WasmAppNode::Button { label, action: action_id } => {
                         if ui.button(label).clicked() { action = Some(action_id); }
                     }
+                    blaze_wasm::WasmAppNode::ProgressBar { label, fraction } => {
+                        ui.add(egui::ProgressBar::new(fraction).text(label));
+                    }
+                    blaze_wasm::WasmAppNode::CanvasRect { x, y, width, height, color } => {
+                        let canvas_size = egui::vec2(ui.available_width().min(520.0).max(180.0), 180.0);
+                        let (canvas, _) = ui.allocate_exact_size(canvas_size, egui::Sense::hover());
+                        let painter = ui.painter_at(canvas);
+                        let point = canvas.min + egui::vec2(x * canvas.width(), y * canvas.height());
+                        let size = egui::vec2(width * canvas.width(), height * canvas.height());
+                        painter.rect_filled(
+                            egui::Rect::from_min_size(point, size),
+                            8.0,
+                            egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]),
+                        );
+                    }
+                    blaze_wasm::WasmAppNode::CanvasCircle { x, y, radius, color } => {
+                        let canvas_size = egui::vec2(ui.available_width().min(520.0).max(180.0), 180.0);
+                        let (canvas, _) = ui.allocate_exact_size(canvas_size, egui::Sense::hover());
+                        let painter = ui.painter_at(canvas);
+                        let center = canvas.min + egui::vec2(x * canvas.width(), y * canvas.height());
+                        painter.circle_filled(
+                            center,
+                            radius * canvas.width().min(canvas.height()),
+                            egui::Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]),
+                        );
+                    }
                 }
             }
             if let Some(action_id) = action {
