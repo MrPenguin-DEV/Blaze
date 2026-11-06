@@ -512,12 +512,75 @@ impl BlazeApp {
                 self.save_named_file(&name, body.as_bytes());
             }
         });
-        ui.add(
-            egui::TextEdit::multiline(&mut self.sheet_csv)
-                .font(egui::TextStyle::Monospace)
-                .desired_width(f32::INFINITY)
-                .desired_rows(18),
-        );
+        let mut grid_rows = match blaze_office::parse_csv(&self.sheet_csv) {
+            Ok(rows) => rows,
+            Err(error) => {
+                ui.label(egui::RichText::new(format!("CSV parse error: {error}")).color(egui::Color32::RED));
+                Vec::new()
+            }
+        };
+
+        ui.horizontal(|ui| {
+            if ui.button("Add row").clicked() {
+                let columns = grid_rows.iter().map(Vec::len).max().unwrap_or(2).max(1);
+                grid_rows.push(vec![String::new(); columns]);
+                self.sheet_csv = encode_csv_rows(&grid_rows);
+            }
+            if ui.button("Add column").clicked() {
+                if grid_rows.is_empty() {
+                    grid_rows.push(vec![String::new(), String::new()]);
+                } else {
+                    for row in &mut grid_rows {
+                        row.push(String::new());
+                    }
+                }
+                self.sheet_csv = encode_csv_rows(&grid_rows);
+            }
+            ui.label(format!(
+                "{} rows × {} columns",
+                grid_rows.len(),
+                grid_rows.iter().map(Vec::len).max().unwrap_or(0)
+            ));
+        });
+
+        let mut grid_changed = false;
+        egui::ScrollArea::both()
+            .max_height(320.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("blaze_spreadsheet_grid")
+                    .striped(true)
+                    .min_col_width(105.0)
+                    .show(ui, |ui| {
+                        for (row_index, row) in grid_rows.iter_mut().enumerate() {
+                            for (column_index, cell) in row.iter_mut().enumerate() {
+                                let response = ui.add_sized(
+                                    [115.0, 26.0],
+                                    egui::TextEdit::singleline(cell)
+                                        .font(egui::TextStyle::Monospace)
+                                        .hint_text(format!("{}{}", spreadsheet_column_name(column_index), row_index + 1)),
+                                );
+                                grid_changed |= response.changed();
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        if grid_changed {
+            self.sheet_csv = encode_csv_rows(&grid_rows);
+        }
+
+        ui.collapsing("Raw CSV source", |ui| {
+            ui.add(
+                egui::TextEdit::multiline(&mut self.sheet_csv)
+                    .font(egui::TextStyle::Monospace)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(6),
+            );
+        });
+
+        draw_spreadsheet_preview(ui, &grid_rows);
+
         ui.separator();
         ui.label(egui::RichText::new("Formula bar").strong());
         ui.horizontal(|ui| {
@@ -1262,6 +1325,96 @@ fn launch_servo(
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("{} ({error}). Build with --features servo-host --bins.", servo_exe.display()))
+}
+
+fn spreadsheet_column_name(mut index: usize) -> String {
+    let mut name = String::new();
+    loop {
+        let remainder = index % 26;
+        name.insert(0, (b'A' + remainder as u8) as char);
+        if index < 26 {
+            break;
+        }
+        index = index / 26 - 1;
+    }
+    name
+}
+
+fn encode_csv_rows(rows: &[Vec<String>]) -> String {
+    rows.iter()
+        .map(|row| {
+            row.iter()
+                .map(|cell| {
+                    if cell.contains(',') || cell.contains('"') || cell.contains('\n') || cell.contains('\r') {
+                        format!("\"{}\"", cell.replace('"', "\"\""))
+                    } else {
+                        cell.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
+fn draw_spreadsheet_preview(ui: &mut egui::Ui, rows: &[Vec<String>]) {
+    if rows.len() < 2 {
+        return;
+    }
+    let column_count = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let numeric_column = (0..column_count).find(|column| {
+        rows.iter().skip(1).filter_map(|row| row.get(*column))
+            .filter(|value| !value.trim().is_empty())
+            .any(|value| value.trim().parse::<f64>().is_ok())
+    });
+    let Some(numeric_column) = numeric_column else {
+        return;
+    };
+
+    let values: Vec<(String, f64)> = rows.iter().skip(1).filter_map(|row| {
+        let value = row.get(numeric_column)?.trim().parse::<f64>().ok()?;
+        let label = row.first().cloned().unwrap_or_default();
+        Some((label, value))
+    }).take(30).collect();
+    if values.is_empty() {
+        return;
+    }
+
+    ui.separator();
+    ui.label(egui::RichText::new("Numeric preview").strong());
+    let max_value = values.iter().map(|(_, value)| *value).fold(0.0_f64, f64::max).max(1.0);
+    let desired_size = egui::vec2(ui.available_width().max(260.0), 155.0);
+    let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.line_segment(
+        [rect.left_bottom() + egui::vec2(8.0, -20.0), rect.right_bottom() + egui::vec2(-8.0, -20.0)],
+        egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.fg_stroke.color),
+    );
+
+    let count = values.len();
+    let available_width = (rect.width() - 28.0).max(20.0);
+    let gap = 5.0;
+    let bar_width = ((available_width - gap * (count.saturating_sub(1)) as f32) / count as f32).max(2.0);
+    let chart_height = rect.height() - 42.0;
+    for (index, (label, value)) in values.iter().enumerate() {
+        let x = rect.left() + 14.0 + index as f32 * (bar_width + gap);
+        let height = (value / max_value * chart_height as f64) as f32;
+        let bar = egui::Rect::from_min_size(
+            egui::pos2(x, rect.bottom() - 21.0 - height),
+            egui::vec2(bar_width, height.max(1.0)),
+        );
+        painter.rect_filled(bar, 2.0, ui.visuals().selection.bg_fill);
+        if count <= 12 {
+            painter.text(
+                egui::pos2(x + bar_width / 2.0, rect.bottom() - 15.0),
+                egui::Align2::CENTER_CENTER,
+                label.chars().take(8).collect::<String>(),
+                egui::FontId::proportional(10.0),
+                ui.visuals().text_color(),
+            );
+        }
+    }
 }
 
 fn safe_stem(input: &str) -> String {
