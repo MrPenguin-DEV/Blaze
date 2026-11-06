@@ -6,7 +6,7 @@ The desktop application is written in Rust and uses eframe/egui with its wgpu re
 
 ## Browser engine boundary
 
-Servo is the leading engine candidate. The current adapter contract normalizes user navigation and defines the boundary where engine navigation, lifecycle, and capability reporting belong. A standalone Servo host is now connected as an optional binary. It uses one active WebView and a lightweight tab list; switching tabs reloads the saved URL rather than keeping background renderers alive. This host remains separate from the main wgpu UI.
+Servo is the leading engine candidate. The current adapter contract normalizes user navigation and defines the boundary where engine navigation, lifecycle, and capability reporting belong. A standalone Servo host is connected as an optional binary. Each tab owns a WebView; the host keeps at most two warm views (active and one recently used unpinned view), dropping other unpinned views and restoring them from URL metadata. This gives quick return to a warm tab and bounds renderer count, but dropping a view loses its in-memory page state. This host remains separate from the main wgpu UI.
 
 Servo's embedding sequence includes:
 1. An EventLoopWaker that schedules Servo event-loop work.
@@ -20,10 +20,10 @@ Servo's embedding interface is still a host-integration project, not a drop-in e
 ## Rendering and video
 
 - The shell uses wgpu for its own UI rendering.
-- Web content rendering must be negotiated with the selected engine's supported rendering context. Do not assume egui's wgpu textures can directly consume Servo output.
-- Prefer platform hardware video decode (VA-API on supported Linux systems, VideoToolbox on macOS, and DXVA/D3D paths on Windows), subject to the engine's media backend.
+- Web content rendering must be negotiated with the selected engine's supported rendering context. Do not assume egui's wgpu textures can directly consume Servo output; the current Servo host is still a separate window/context.
+- Prefer platform hardware video decode (VA-API, NVDEC, AMF, Vulkan Video, V4L2, VideoToolbox or the matching platform API) subject to the Servo media backend and installed plugins.
 - Keep decoded frames in GPU-friendly surfaces where possible to avoid copies.
-- Bound decoder queues and pause or throttle off-screen media.
+- Keep decoder queues bounded and avoid redundant GPU-to-CPU frame copies. The current host does not promise that off-screen media/timers are paused.
 - Report CPU RAM and GPU memory separately.
 
 The 50-tab/50-simultaneous-4K scenario is a stress benchmark, not a guaranteed sub-1-GiB operating point. Low-memory mode should prioritize the foreground tab, suspend eligible background tabs, and restore them on demand.
@@ -54,7 +54,7 @@ blaze-workspace contains Rust data models and format helpers for:
 - Message drafts and call lifecycle state.
 - Capability declarations for future extensions.
 
-blaze-wasm executes no-argument/no-result compute-only Wasm exports. It sets a fuel budget, a maximum stack/recursion depth, and linear-memory/store limits. The default linker contains no host imports, so a guest cannot access browser state, files, network, clipboard, or devices through Blaze. The runner is not yet connected to a managed extension catalog; adding capability host calls requires explicit review and OS process isolation.
+blaze-wasm executes both compute-only exports and a narrow Blaze UI-app ABI. UI apps export memory, `blaze_render(width, height) -> i64` and optionally `blaze_action(action_id)`. The guest returns bounded JSON nodes; the desktop host validates them and paints text/buttons/progress/canvas primitives through egui/wgpu. The Wasmi runtime is an interpreter, not a native JIT or direct WebGPU bridge. Its empty linker exposes no WASI, browser, file, network, clipboard or device imports, with fuel, stack/recursion and linear-memory/store limits. A production app system still needs process isolation and audited capabilities.
 
 The Sheets desktop panel now renders an editable CSV-backed cell grid with row/column insertion, a formula bar and a compact numeric preview chart. The grid remains CSV-backed; this is not yet a full workbook engine with formatting, cell styles, persistent formula graphs, or chart objects. The desktop panels are starter surfaces. Full language servers, terminal isolation, DOCX/XLSX/PPTX interoperability, sync, contacts, calling, and richer extension APIs remain to be implemented.
 
