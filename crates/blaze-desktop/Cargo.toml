@@ -35,6 +35,7 @@ blaze-vault = { path = "../blaze-vault" }
 blaze-office = { path = "../blaze-office" }
 blaze-profile = { path = "../blaze-profile" }
 blaze-comms = { path = "../blaze-comms" }
+blaze-wasm = { path = "../blaze-wasm" }
 eframe.workspace = true
 serde_json.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
