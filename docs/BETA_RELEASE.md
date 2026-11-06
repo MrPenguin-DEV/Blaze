@@ -7,7 +7,7 @@
 
 ## What is bundled
 
-The beta package contains one executable for the native workspace shell and its optional Servo 0.7 browser mode. The browser mode is started from the same executable with `--servo-host`; the shell's **Open in Servo** action invokes that mode automatically.
+The beta archive includes the resolved Cargo lockfile and one executable for the native workspace shell and its optional Servo 0.7 browser mode. The browser mode is started from the same executable with `--servo-host`; the shell's **Open in Servo** action invokes that mode automatically.
 
 The browser view still uses a second native window and its own OpenGL rendering context. The shell uses eframe/egui/wgpu. This release does not claim an inline browser surface or a direct Servo-to-wgpu zero-copy texture bridge.
 
@@ -19,9 +19,10 @@ Install the Linux graphics, Fontconfig/FreeType and GStreamer development packag
 cargo build --release -p blaze-desktop --features servo-host --bin blaze
 ```
 
-Launch the shell:
+Check the version and launch the shell:
 
 ```sh
+./target/release/blaze --version
 ./target/release/blaze
 ```
 
