@@ -242,6 +242,7 @@ mod tests {
         let root = test_dir();
         let mut cache = ContentCache::open(&root, 4).unwrap();
         let first = cache.put(b"abc").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
         let _second = cache.put(b"de").unwrap();
         assert!(cache.total_bytes() <= 4);
         assert!(cache.get(&first).unwrap().is_none());
