@@ -9,7 +9,7 @@
 //! The guest has no WASI or browser/device imports. Blaze parses a small,
 //! non-HTML UI tree and paints it with the native egui renderer.
 
-use super::{HostState, SandboxConfig, SandboxError};
+use super::{HostState, SandboxConfig};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wasmi::{Config, Engine, Instance, Linker, Memory, Module, Store, StoreLimitsBuilder, TypedFunc};
@@ -52,12 +52,6 @@ pub enum WasmAppError {
     FuelConfiguration(String),
 }
 
-impl From<SandboxError> for WasmAppError {
-    fn from(error: SandboxError) -> Self {
-        Self::Validation(error.to_string())
-    }
-}
-
 /// A loaded app instance. Keeping this value alive preserves the guest's state
 /// between button events and render calls.
 pub struct WasmAppRuntime {
@@ -69,6 +63,16 @@ pub struct WasmAppRuntime {
     sandbox: SandboxConfig,
     frame: WasmAppFrame,
     fuel_consumed: u64,
+}
+
+impl std::fmt::Debug for WasmAppRuntime {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("WasmAppRuntime")
+            .field("frame", &self.frame)
+            .field("fuel_consumed", &self.fuel_consumed)
+            .finish_non_exhaustive()
+    }
 }
 
 impl WasmAppRuntime {
