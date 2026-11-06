@@ -7,7 +7,7 @@ Current version: 0.2.0 · Native shell prototype · Linux-first development, cro
 ## What is implemented in this repository
 
 - A native Rust desktop shell rendered with egui/eframe and its wgpu graphics backend. It does not use Electron or an embedded system WebView.
-- An optional standalone Servo 0.8 page-renderer binary with mouse, keyboard and wheel input, browser shortcuts, HTTP(S)-only navigation and a GStreamer media backend. The Servo host currently opens in a separate native window rather than inside the main shell.
+- An optional standalone Servo 0.8 page-renderer binary with mouse, keyboard and wheel input, HTTP(S)-only navigation, a GStreamer media backend, and lightweight URL tabs switched by keyboard shortcuts. The Servo host opens in a separate native window and reuses one active WebView.
 - Browser address validation, safe-scheme filtering, and a strict browser-engine adapter contract.
 - Tab lifecycle policy with foreground/background/suspended states, pinning, unsaved-tab protection, and a configurable live-tab ceiling.
 - A local-file vault using Argon2-derived keys and ChaCha20-Poly1305 authenticated encryption.
@@ -58,4 +58,5 @@ The optional Servo feature is a large native build and requires GStreamer develo
 - `crates/blaze-wasm` — compute-only, resource-limited Wasm runtime.
 - `crates/blaze-desktop` — native desktop shell, app panels, and optional Servo browser host.
 - `docs/ARCHITECTURE.md` — system architecture.
+- `docs/BUILDING.md` — native and Servo build instructions.
 - `docs/IMPLEMENTATION_STATUS.md` — implementation status and remaining work.
