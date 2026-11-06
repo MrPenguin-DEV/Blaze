@@ -424,6 +424,40 @@ mod tests {
     }
 
     #[test]
+    fn docx_markdown_export_can_be_reopened() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("document.docx");
+        export_markdown("# Blaze document\n\nA local-first draft.", OfficeOutputFormat::Docx, &path).unwrap();
+        let imported = import_office(&path).unwrap();
+        assert!(imported.plain_text.contains("Blaze document"));
+    }
+
+    #[test]
+    fn xlsx_csv_export_can_be_reopened() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("sheet.xlsx");
+        export_csv("Item,Quantity\nApples,4\nPears,6", &path).unwrap();
+        let imported = import_spreadsheet_as_csv(&path).unwrap();
+        let rows = parse_csv(&imported.csv).unwrap();
+        assert_eq!(rows[0], vec!["Item", "Quantity"]);
+        assert_eq!(rows[2], vec!["Pears", "6"]);
+    }
+
+    #[test]
+    fn pptx_markdown_export_can_be_reopened() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("slides.pptx");
+        export_markdown(
+            "# Quarterly Plan\n\nShip a reliable browser prototype.",
+            OfficeOutputFormat::Pptx,
+            &path,
+        )
+        .unwrap();
+        let imported = import_office(&path).unwrap();
+        assert!(imported.plain_text.contains("Quarterly Plan"));
+    }
+
+    #[test]
     fn rejects_unterminated_csv_quote() {
         assert!(matches!(
             parse_csv("a,\"broken"),
