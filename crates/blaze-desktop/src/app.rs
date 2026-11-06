@@ -1,4 +1,9 @@
 use blaze_browser::normalize_address;
+use blaze_core::{
+    memory::MemoryBudget,
+    tabs::TabManager,
+    TabId,
+};
 use blaze_vault::{read_encrypted, write_encrypted};
 use directories::ProjectDirs;
 use eframe::egui;
@@ -34,6 +39,7 @@ impl Section {
 
 #[derive(Clone, Debug)]
 struct BrowserTab {
+    id: TabId,
     title: String,
     url: String,
 }
@@ -41,6 +47,7 @@ struct BrowserTab {
 pub struct BlazeApp {
     section: Section,
     tabs: Vec<BrowserTab>,
+    tab_policy: TabManager,
     active_tab: usize,
     address: String,
     browser_status: String,
@@ -63,12 +70,16 @@ pub struct BlazeApp {
 
 impl Default for BlazeApp {
     fn default() -> Self {
+        let mut tab_policy = TabManager::new(MemoryBudget::new(1024), 8);
+        let initial_tab = tab_policy.open("about:blank");
         Self {
             section: Section::Browser,
             tabs: vec![BrowserTab {
+                id: initial_tab,
                 title: "New tab".into(),
                 url: "about:blank".into(),
             }],
+            tab_policy,
             active_tab: 0,
             address: "https://example.com".into(),
             browser_status: "Browser engine not connected yet. The native shell is ready.".into(),
@@ -96,31 +107,29 @@ impl eframe::App for BlazeApp {
         let ctx = ui.ctx().clone();
         self.render_header(&ctx);
         self.render_sidebar(&ctx);
-        egui::CentralPanel::default()
-            .frame(egui::Frame::central_panel(&ctx.style()).inner_margin(egui::Margin::same(18)))
-            .show(&ctx, |ui| {
-                if !self.toast.is_empty() {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(&self.toast).color(egui::Color32::LIGHT_GREEN));
-                        if ui.small_button("Dismiss").clicked() {
-                            self.toast.clear();
-                        }
-                    });
-                    ui.add_space(8.0);
-                }
+        egui::CentralPanel::default().show(&ctx, |ui| {
+            if !self.toast.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(&self.toast).color(egui::Color32::LIGHT_GREEN));
+                    if ui.small_button("Dismiss").clicked() {
+                        self.toast.clear();
+                    }
+                });
+                ui.add_space(8.0);
+            }
 
-                match self.section {
-                    Section::Browser => self.browser_panel(ui),
-                    Section::Code => self.code_panel(ui),
-                    Section::Documents => self.documents_panel(ui),
-                    Section::Sheets => self.sheets_panel(ui),
-                    Section::Slides => self.slides_panel(ui),
-                    Section::Notes => self.notes_panel(ui),
-                    Section::Messenger => self.messenger_panel(ui),
-                    Section::Calling => self.calling_panel(ui),
-                    Section::Vault => self.vault_panel(ui),
-                }
-            });
+            match self.section {
+                Section::Browser => self.browser_panel(ui),
+                Section::Code => self.code_panel(ui),
+                Section::Documents => self.documents_panel(ui),
+                Section::Sheets => self.sheets_panel(ui),
+                Section::Slides => self.slides_panel(ui),
+                Section::Notes => self.notes_panel(ui),
+                Section::Messenger => self.messenger_panel(ui),
+                Section::Calling => self.calling_panel(ui),
+                Section::Vault => self.vault_panel(ui),
+            }
+        });
     }
 }
 
@@ -201,12 +210,15 @@ impl BlazeApp {
                 navigate = true;
             }
             if ui.button("+").on_hover_text("New tab").clicked() {
+                let id = self.tab_policy.open("about:blank");
                 self.tabs.push(BrowserTab {
+                    id,
                     title: "New tab".into(),
                     url: "about:blank".into(),
                 });
                 self.active_tab = self.tabs.len() - 1;
                 self.address = "about:blank".into();
+                self.tab_policy.enforce_live_limit();
             }
         });
 
@@ -217,16 +229,23 @@ impl BlazeApp {
         ui.horizontal_wrapped(|ui| {
             let mut selected = None;
             for (index, tab) in self.tabs.iter().enumerate() {
-                if ui
-                    .selectable_label(self.active_tab == index, &tab.title)
-                    .clicked()
-                {
+                let paused = self.tab_policy.entries().iter()
+                    .find(|entry| entry.id() == tab.id)
+                    .is_some_and(|entry| entry.activity == blaze_core::memory::TabActivity::Suspended);
+                let label = if paused {
+                    format!("◌ {}", tab.title)
+                } else {
+                    tab.title.clone()
+                };
+                if ui.selectable_label(self.active_tab == index, label).clicked() {
                     selected = Some(index);
                 }
             }
             if let Some(index) = selected {
                 self.active_tab = index;
                 self.address = self.tabs[index].url.clone();
+                self.tab_policy.select(self.tabs[index].id);
+                self.tab_policy.enforce_live_limit();
             }
         });
 
@@ -247,8 +266,13 @@ impl BlazeApp {
 
         ui.add_space(14.0);
         ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new("Memory policy").strong());
-            ui.label("Background tabs can be suspended by policy; live renderer memory is not measurable until an engine is connected.");
+            ui.label(egui::RichText::new("Tab policy").strong());
+            ui.label(format!(
+                "{} live / {} open · {} MiB soft memory budget · maximum 8 live tabs",
+                self.tab_policy.live_count(),
+                self.tab_policy.entries().len(),
+                self.tab_policy.budget().soft_limit_mib()
+            ));
         });
     }
 
@@ -260,6 +284,7 @@ impl BlazeApp {
                 if let Some(tab) = self.tabs.get_mut(self.active_tab) {
                     tab.url = normalized.clone();
                     tab.title = url.host_str().unwrap_or("Blank").to_owned();
+                    self.tab_policy.set_url(tab.id, normalized.clone());
                 }
                 self.browser_status = format!(
                     "Address accepted: {normalized}. Engine status: not connected; no network page load occurred."
