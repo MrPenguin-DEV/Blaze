@@ -224,6 +224,17 @@ impl BlazeApp {
             if ui.button("Go").clicked() {
                 navigate = true;
             }
+            #[cfg(feature = "servo-host")]
+            if ui.button("Open in Servo").clicked() {
+                match launch_servo(&self.address) {
+                    Ok(()) => self.browser_status = "Opened the current address in the separate Servo browser window.".into(),
+                    Err(error) => self.browser_status = format!("Could not launch Servo: {error}"),
+                }
+            }
+            #[cfg(not(feature = "servo-host"))]
+            if ui.button("Servo host instructions").clicked() {
+                self.browser_status = "Build both binaries with: cargo build -p blaze-desktop --features servo-host --bins".into();
+            }
             if ui.button("☆").on_hover_text("Bookmark current page").clicked() {
                 let title = self.tabs.get(self.active_tab).map(|tab| tab.title.clone()).unwrap_or_else(|| "Bookmark".into());
                 self.profile.add_bookmark(title, self.address.clone());
@@ -740,6 +751,17 @@ impl BlazeApp {
             None => self.toast = "Invalid file name.".into(),
         }
     }
+}
+
+#[cfg(feature = "servo-host")]
+fn launch_servo(address: &str) -> Result<(), String> {
+    let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let servo_exe = current_exe.with_file_name(format!("blaze-servo{}", std::env::consts::EXE_SUFFIX));
+    std::process::Command::new(&servo_exe)
+        .arg(address)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("{} ({error}). Build with --features servo-host --bins.", servo_exe.display()))
 }
 
 fn safe_stem(input: &str) -> String {
