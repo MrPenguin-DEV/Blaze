@@ -309,13 +309,15 @@ mod tests {
         let description = RTCSessionDescription::offer(
             "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n".to_owned()
         ).unwrap();
+        let expected_sdp = description.sdp.clone();
+        let expected_sdp_type = description.sdp_type.clone();
         let message = SignalingMessage::Description(description);
         let serialized = serde_json::to_string(&message).unwrap();
         let decoded: SignalingMessage = serde_json::from_str(&serialized).unwrap();
         match decoded {
             SignalingMessage::Description(decoded_description) => {
-                assert_eq!(decoded_description.sdp, description.sdp);
-                assert_eq!(decoded_description.sdp_type, description.sdp_type);
+                assert_eq!(decoded_description.sdp, expected_sdp);
+                assert_eq!(decoded_description.sdp_type, expected_sdp_type);
             }
             SignalingMessage::Candidate(_) => panic!("expected a description payload"),
         }
