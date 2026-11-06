@@ -75,6 +75,10 @@ pub struct BlazeApp {
     message_log: String,
     signal_input: String,
     signal_output: String,
+    ice_server_urls: String,
+    turn_username: String,
+    turn_credential: String,
+    relay_only: bool,
     trusted_peer_fingerprint: String,
     remote_fingerprint: String,
     local_fingerprint: String,
@@ -126,6 +130,10 @@ impl Default for BlazeApp {
             message_log: String::new(),
             signal_input: String::new(),
             signal_output: String::new(),
+            ice_server_urls: String::new(),
+            turn_username: String::new(),
+            turn_credential: String::new(),
+            relay_only: false,
             trusted_peer_fingerprint: String::new(),
             remote_fingerprint: String::new(),
             local_fingerprint: String::new(),
@@ -603,21 +611,36 @@ impl BlazeApp {
         if !self.remote_fingerprint.is_empty() {
             ui.label(format!("Fingerprint in the pasted remote SDP: {}", self.remote_fingerprint));
         }
+        if self.peer_session.is_none() {
+            ui.collapsing("Network / NAT / IP privacy settings", |ui| {
+                ui.label("Optional STUN/TURN URLs, one per line. Blaze does not silently add a public ICE service.");
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.ice_server_urls)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(3)
+                        .hint_text("stun:your-stun.example:3478\nturn:your-turn.example:3478"),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("TURN username");
+                    ui.text_edit_singleline(&mut self.turn_username);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("TURN credential");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.turn_credential)
+                            .password(true)
+                            .desired_width(300.0),
+                    );
+                });
+                ui.checkbox(&mut self.relay_only, "Relay only (hide host/public IP candidates from the peer; requires TURN)");
+                ui.label("TURN provider still sees the connecting client's network address. Credentials stay in memory and are not added to signaling JSON or profile exports.");
+            });
+        }
         ui.horizontal(|ui| {
             if self.peer_session.is_none() {
                 if ui.button("Create peer connection").clicked() {
-                    match self.comms_runtime.block_on(blaze_comms::PeerSession::new(
-                        blaze_comms::PeerConfig::default(),
-                    )) {
-                        Ok(session) => {
-                            self.peer_session = Some(session);
-                            self.identity_verified = false;
-                            self.local_fingerprint.clear();
-                            self.remote_fingerprint.clear();
-                            self.comms_status = "Peer connection created. Create an offer, then exchange signaling JSON and verify the SHA-256 fingerprints out of band.".into();
-                        }
-                        Err(error) => self.comms_status = format!("Could not create peer connection: {error}"),
-                    }
+                    self.create_peer_connection();
                 }
             } else {
                 if ui.button("Close connection").clicked() {
@@ -720,6 +743,62 @@ impl BlazeApp {
             }
         });
         ui.label("Connection setup uses host candidates only by default. Peers on different networks may need an explicitly configured TURN server. Never send signaling JSON through an untrusted channel.");
+    }
+
+    fn create_peer_connection(&mut self) {
+        let urls: Vec<String> = self
+            .ice_server_urls
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect();
+
+        let mut config = blaze_comms::PeerConfig::default();
+        config.relay_only = self.relay_only;
+
+        if !urls.is_empty() {
+            let has_turn = urls.iter().any(|url| {
+                let lower = url.to_ascii_lowercase();
+                lower.starts_with("turn:") || lower.starts_with("turns:")
+            });
+            if self.relay_only && !has_turn {
+                self.comms_status = "Relay-only mode requires at least one TURN or TURNS server URL.".into();
+                return;
+            }
+
+            match blaze_comms::build_ice_server(
+                urls,
+                self.turn_username.trim().to_owned(),
+                self.turn_credential.clone(),
+            ) {
+                Ok(server) => config.ice_servers.push(server),
+                Err(error) => {
+                    self.comms_status = format!("ICE configuration rejected: {error}");
+                    return;
+                }
+            }
+        } else if self.relay_only {
+            self.comms_status = "Relay-only mode requires an explicitly configured TURN server.".into();
+            return;
+        }
+
+        match self.comms_runtime.block_on(blaze_comms::PeerSession::new(config)) {
+            Ok(session) => {
+                self.peer_session = Some(session);
+                self.identity_verified = false;
+                self.local_fingerprint.clear();
+                self.remote_fingerprint.clear();
+                self.comms_status = if self.relay_only {
+                    "Peer connection created with relay-only ICE. Create an offer, then exchange signaling JSON and verify the SHA-256 fingerprints out of band.".into()
+                } else {
+                    "Peer connection created. Create an offer, then exchange signaling JSON and verify the SHA-256 fingerprints out of band.".into()
+                };
+            }
+            Err(error) => {
+                self.comms_status = format!("Could not create peer connection: {error}");
+            }
+        }
     }
 
     fn append_signaling_output(&mut self, message: blaze_comms::SignalingMessage) {
