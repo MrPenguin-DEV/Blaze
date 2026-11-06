@@ -159,83 +159,81 @@ impl Default for BlazeApp {
 
 impl eframe::App for BlazeApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
-        self.render_header(&ctx);
-        self.render_sidebar(&ctx);
-        egui::CentralPanel::default().show(&ctx, |ui| {
-            if !self.toast.is_empty() {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(&self.toast).color(egui::Color32::LIGHT_GREEN));
-                    if ui.small_button("Dismiss").clicked() {
-                        self.toast.clear();
-                    }
-                });
-                ui.add_space(8.0);
-            }
+        self.render_header(ui);
+        ui.separator();
+        ui.horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(178.0, ui.available_height()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| self.render_sidebar(ui),
+            );
+            ui.separator();
+            ui.vertical(|ui| {
+                if !self.toast.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(&self.toast).color(egui::Color32::LIGHT_GREEN));
+                        if ui.small_button("Dismiss").clicked() {
+                            self.toast.clear();
+                        }
+                    });
+                    ui.add_space(8.0);
+                }
 
-            match self.section {
-                Section::Browser => self.browser_panel(ui),
-                Section::Code => self.code_panel(ui),
-                Section::Documents => self.documents_panel(ui),
-                Section::Sheets => self.sheets_panel(ui),
-                Section::Slides => self.slides_panel(ui),
-                Section::Notes => self.notes_panel(ui),
-                Section::Messenger => self.messenger_panel(ui),
-                Section::Calling => self.calling_panel(ui),
-                Section::Vault => self.vault_panel(ui),
-                Section::Privacy => self.privacy_panel(ui),
-            }
+                match self.section {
+                    Section::Browser => self.browser_panel(ui),
+                    Section::Code => self.code_panel(ui),
+                    Section::Documents => self.documents_panel(ui),
+                    Section::Sheets => self.sheets_panel(ui),
+                    Section::Slides => self.slides_panel(ui),
+                    Section::Notes => self.notes_panel(ui),
+                    Section::Messenger => self.messenger_panel(ui),
+                    Section::Calling => self.calling_panel(ui),
+                    Section::Vault => self.vault_panel(ui),
+                    Section::Privacy => self.privacy_panel(ui),
+                }
+            });
         });
     }
 }
 
 impl BlazeApp {
-    fn render_header(&self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("blaze_header")
-            .exact_height(58.0)
-            .show(ctx, |ui| {
-                ui.horizontal_centered(|ui| {
-                    ui.add_space(12.0);
-                    ui.heading(egui::RichText::new("BLAZE").strong().size(22.0));
-                    ui.label(egui::RichText::new("RUST WORKSPACE").small().weak());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("NATIVE · GPU UI · LOCAL-FIRST").small().weak());
-                        ui.add_space(12.0);
-                    });
-                });
+    fn render_header(&self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            ui.heading(egui::RichText::new("BLAZE").strong().size(22.0));
+            ui.label(egui::RichText::new("RUST WORKSPACE").small().weak());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(egui::RichText::new("NATIVE · GPU UI · LOCAL-FIRST").small().weak());
+                ui.add_space(12.0);
             });
+        });
     }
 
-    fn render_sidebar(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("blaze_sidebar")
-            .resizable(false)
-            .default_width(178.0)
-            .show(ctx, |ui| {
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("WORKSPACE").small().weak().strong());
-                ui.add_space(8.0);
-                for (section, label) in Section::ALL {
-                    let selected = self.section == section;
-                    if ui
-                        .selectable_label(selected, egui::RichText::new(label).size(14.0))
-                        .clicked()
-                    {
-                        self.section = section;
-                    }
-                }
-                ui.add_space(20.0);
-                ui.separator();
-                ui.label(egui::RichText::new("STATUS").small().weak().strong());
-                ui.label(egui::RichText::new("Engine: Servo host is optional").small());
-                ui.label(egui::RichText::new("Vault: password locked").small());
-                ui.label(egui::RichText::new("Profile: encrypted local").small());
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new("Blaze is a prototype. Browser rendering, media decode, and calling are not active yet.")
-                        .small()
-                        .weak(),
-                );
-            });
+    fn render_sidebar(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(12.0);
+        ui.label(egui::RichText::new("WORKSPACE").small().weak().strong());
+        ui.add_space(8.0);
+        for (section, label) in Section::ALL {
+            let selected = self.section == section;
+            if ui
+                .selectable_label(selected, egui::RichText::new(label).size(14.0))
+                .clicked()
+            {
+                self.section = section;
+            }
+        }
+        ui.add_space(20.0);
+        ui.separator();
+        ui.label(egui::RichText::new("STATUS").small().weak().strong());
+        ui.label(egui::RichText::new("Engine: Servo host is optional").small());
+        ui.label(egui::RichText::new("Vault: password locked").small());
+        ui.label(egui::RichText::new("Profile: encrypted local").small());
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new("Browser pages render in the optional Servo window; media decode and calling depend on platform integration.")
+                .small()
+                .weak(),
+        );
     }
 
     fn browser_panel(&mut self, ui: &mut egui::Ui) {
