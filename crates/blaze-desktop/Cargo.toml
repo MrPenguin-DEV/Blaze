@@ -21,6 +21,7 @@ servo-host = [
     "dep:webrender_api",
     "dep:tracing",
     "dep:rustls",
+    "dep:yeslogic-fontconfig-sys",
 ]
 
 [dependencies]
@@ -43,6 +44,8 @@ winit = { version = "0.30.13", optional = true }
 webrender_api = { version = "0.70", optional = true }
 tracing = { version = "0.1", optional = true }
 rustls = { version = "0.23", features = ["aws_lc_rs"], optional = true }
+# Pin the Servo fontconfig ABI to the 6.0.0 API used by Servo 0.7.
+yeslogic-fontconfig-sys = { version = "=6.0.0", optional = true }
 
 [lints]
 workspace = true
