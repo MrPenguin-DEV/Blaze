@@ -11,7 +11,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_FONTCONFIG_DLOPEN: "1"
+  RUST_FONTCONFIG_DLOPEN: "on"
 
 jobs:
   linux-x86_64:
