@@ -715,6 +715,10 @@ impl BlazeApp {
     }
 
     fn append_signaling_output(&mut self, message: blaze_comms::SignalingMessage) {
+        if let blaze_comms::SignalingMessage::Description(description) = &message {
+            self.local_fingerprint =
+                blaze_comms::sha256_dtls_fingerprint(&description.sdp).unwrap_or_default();
+        }
         match serde_json::to_string(&message) {
             Ok(json) => {
                 self.signal_output.push_str(&json);
@@ -725,36 +729,73 @@ impl BlazeApp {
     }
 
     fn apply_remote_signaling(&mut self) {
-        let payload = std::mem::take(&mut self.signal_input);
-        let lines: Vec<String> = payload
+        let lines: Vec<String> = self
+            .signal_input
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .map(str::to_owned)
             .collect();
 
-        for line in lines {
-            let message = match serde_json::from_str::<blaze_comms::SignalingMessage>(&line) {
-                Ok(message) => message,
+        let mut messages = Vec::with_capacity(lines.len());
+        for line in &lines {
+            match serde_json::from_str::<blaze_comms::SignalingMessage>(line) {
+                Ok(message) => messages.push(message),
                 Err(error) => {
                     self.comms_status = format!("Invalid signaling JSON: {error}");
-                    continue;
+                    return;
                 }
-            };
+            }
+        }
 
+        let remote_descriptions = messages
+            .iter()
+            .filter_map(|message| match message {
+                blaze_comms::SignalingMessage::Description(description) => Some(description),
+                blaze_comms::SignalingMessage::Candidate(_) => None,
+            })
+            .collect::<Vec<_>>();
+
+        if !remote_descriptions.is_empty() {
+            for description in remote_descriptions {
+                let Some(fingerprint) = blaze_comms::sha256_dtls_fingerprint(&description.sdp) else {
+                    self.identity_verified = false;
+                    self.comms_status = "Remote SDP has no single unambiguous SHA-256 DTLS fingerprint. Signaling was not applied.".into();
+                    return;
+                };
+                self.remote_fingerprint = fingerprint;
+
+                if !blaze_comms::verify_sha256_dtls_fingerprint(
+                    &description.sdp,
+                    &self.trusted_peer_fingerprint,
+                ) {
+                    self.identity_verified = false;
+                    self.comms_status = "Fingerprint mismatch or missing expected value. Verify the fingerprint independently, enter it above, and apply signaling again.".into();
+                    return;
+                }
+            }
+            self.identity_verified = true;
+        } else if !self.identity_verified {
+            self.comms_status = "A peer SDP must be fingerprint-verified before ICE candidates or messages can be accepted.".into();
+            return;
+        }
+
+        self.signal_input.clear();
+        for message in messages {
             let result = self.peer_session.as_ref().map(|session| {
                 self.comms_runtime.block_on(session.handle_signaling(message))
             });
             match result {
                 Some(Ok(Some(response))) => {
                     self.append_signaling_output(response);
-                    self.comms_status = "Remote offer applied; local answer added to signaling output.".into();
+                    self.comms_status = "Remote offer applied and fingerprint verified; local answer added to signaling output.".into();
                 }
                 Some(Ok(None)) => {
                     self.comms_status = "Remote signaling message applied.".into();
                 }
                 Some(Err(error)) => {
                     self.comms_status = format!("Could not apply remote signaling: {error}");
+                    return;
                 }
                 None => break,
             }
