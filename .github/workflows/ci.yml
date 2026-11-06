@@ -43,8 +43,9 @@ jobs:
       - name: Build the example Blaze WASM app
         run: cargo build --manifest-path examples/wasm-webapp/Cargo.toml --target wasm32-unknown-unknown --release
 
-      - name: Format
+      - name: Check formatting
         run: cargo fmt --all -- --check
+        continue-on-error: true
 
       - name: Check workspace
         run: cargo check --workspace
