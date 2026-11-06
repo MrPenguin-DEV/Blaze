@@ -5,6 +5,7 @@ members = [
     "crates/blaze-browser",
     "crates/blaze-vault",
     "crates/blaze-workspace",
+    "crates/blaze-wasm",
     "crates/blaze-desktop",
 ]
 
@@ -24,6 +25,7 @@ argon2 = "0.5"
 chacha20poly1305 = "0.10"
 rand_core = { version = "0.6", features = ["getrandom"] }
 zeroize = "1"
+wasmi = "2.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
