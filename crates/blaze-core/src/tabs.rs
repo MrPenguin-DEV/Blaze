@@ -99,6 +99,15 @@ impl TabManager {
         true
     }
 
+    pub fn set_url(&mut self, id: TabId, url: impl Into<String>) -> bool {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id() == id) {
+            entry.snapshot.url = url.into();
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn set_dirty(&mut self, id: TabId, dirty: bool) -> bool {
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id() == id) {
             entry.dirty = dirty;
