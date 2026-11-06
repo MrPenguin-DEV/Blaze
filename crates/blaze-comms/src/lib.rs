@@ -284,7 +284,7 @@ mod tests {
     fn normalizes_and_verifies_sha256_dtls_fingerprint() {
         let fingerprint = "00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF";
         let sdp = format!(
-            "v=0\\r\\na=fingerprint:sha-256 {fingerprint}\\r\\n"
+            "v=0\r\na=fingerprint:sha-256 {fingerprint}\r\n"
         );
         let canonical = normalize_sha256_fingerprint(fingerprint).unwrap();
         assert_eq!(canonical.len(), 64);
@@ -294,10 +294,10 @@ mod tests {
 
     #[test]
     fn refuses_missing_or_conflicting_fingerprints() {
-        assert!(sha256_dtls_fingerprint("v=0\\r\\ns=-\\r\\n").is_none());
+        assert!(sha256_dtls_fingerprint("v=0\r\ns=-\r\n").is_none());
         let first = "00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF";
         let second = "11:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF";
-        let sdp = format!("a=fingerprint:sha-256 {first}\\na=fingerprint:sha-256 {second}\\n");
+        let sdp = format!("a=fingerprint:sha-256 {first}\na=fingerprint:sha-256 {second}\n");
         assert!(sha256_dtls_fingerprint(&sdp).is_none());
     }
 
