@@ -1,7 +1,7 @@
 mod app;
 
 #[cfg(feature = "servo-host")]
-#[path = "bin/servo.rs"]
+#[path = "servo_host.rs"]
 mod servo_host;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
