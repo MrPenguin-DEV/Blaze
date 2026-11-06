@@ -59,6 +59,7 @@ pub struct BlazeApp {
     code_source: String,
     wasm_path: String,
     wasm_status: String,
+    wasm_app: Option<blaze_wasm::WasmAppRuntime>,
     document_title: String,
     document_markdown: String,
     sheet_title: String,
@@ -113,7 +114,8 @@ impl Default for BlazeApp {
             code_name: "scratch.rs".into(),
             code_source: "fn main() {\n    println!(\"Hello from Blaze!\");\n}\n".into(),
             wasm_path: "extension.wasm".into(),
-            wasm_status: "Wasm runner: choose a compiled module with a no-argument run export.".into(),
+            wasm_status: "Wasm runner: choose a compiled compute module or a Blaze WASM UI app.".into(),
+            wasm_app: None,
             document_title: "Untitled document".into(),
             document_markdown: "# Untitled document\n\nStart writing here.\n".into(),
             sheet_title: "Untitled spreadsheet".into(),
@@ -398,6 +400,56 @@ impl BlazeApp {
         });
         ui.label("Entry point: run() with no arguments and no return value. Fuel: 5,000,000. Guest memory: 32 MiB.");
         ui.label(&self.wasm_status);
+        ui.separator();
+        ui.label(egui::RichText::new("Compiled WASM web app").strong());
+        ui.label("Build Rust apps for wasm32-unknown-unknown. Blaze renders their bounded UI tree natively and sends button actions back to the guest.");
+        if ui.button("Run WASM web app from module path").clicked() {
+            self.load_wasm_app();
+        }
+        if let Some(app) = self.wasm_app.as_mut() {
+            let frame = app.frame().clone();
+            ui.separator();
+            if !frame.title.is_empty() {
+                ui.heading(frame.title);
+            }
+            let mut action = None;
+            for node in frame.nodes {
+                match node {
+                    blaze_wasm::WasmAppNode::Heading { text } => { ui.heading(text); }
+                    blaze_wasm::WasmAppNode::Text { text } => { ui.label(text); }
+                    blaze_wasm::WasmAppNode::Button { label, action: action_id } => {
+                        if ui.button(label).clicked() { action = Some(action_id); }
+                    }
+                }
+            }
+            if let Some(action_id) = action {
+                let width = ui.available_width().max(1.0) as i32;
+                let height = ui.available_height().max(1.0) as i32;
+                match app.dispatch_action(action_id, width, height) {
+                    Ok(()) => self.wasm_status = format!("WASM UI action completed; guest fuel used: {}.", app.fuel_consumed()),
+                    Err(error) => self.wasm_status = format!("WASM UI action failed: {error}"),
+                }
+            }
+        }
+    }
+
+    fn load_wasm_app(&mut self) {
+        let path = PathBuf::from(self.wasm_path.trim());
+        match fs::read(&path) {
+            Ok(bytes) => match blaze_wasm::WasmAppRuntime::load(
+                &bytes,
+                blaze_wasm::SandboxConfig::default(),
+                1280,
+                720,
+            ) {
+                Ok(app) => {
+                    self.wasm_status = format!("Loaded WASM UI app {}. Guest fuel used: {}.", path.display(), app.fuel_consumed());
+                    self.wasm_app = Some(app);
+                }
+                Err(error) => self.wasm_status = format!("WASM UI app rejected: {error}"),
+            },
+            Err(error) => self.wasm_status = format!("Could not read {}: {error}", path.display()),
+        }
     }
 
     fn run_wasm_module(&mut self) {
