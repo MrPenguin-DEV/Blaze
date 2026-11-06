@@ -1,0 +1,15 @@
+[package]
+name = "blaze-browser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Navigation policy and browser engine adapter contract for Blaze"
+
+[dependencies]
+blaze-core = { path = "../blaze-core" }
+thiserror.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
