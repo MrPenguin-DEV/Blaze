@@ -1,3 +1,6 @@
+mod app;
+pub use app::{WasmAppError, WasmAppFrame, WasmAppNode, WasmAppRuntime};
+
 //! Minimal WebAssembly extension executor for untrusted, compute-only modules.
 //!
 //! No filesystem, network, clipboard, browser, or OS imports are linked by
