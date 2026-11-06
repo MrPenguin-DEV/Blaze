@@ -14,7 +14,7 @@ Current version: 0.2.0 · Native shell prototype · Linux-first development, cro
 - A content-addressed SHA-256 disk cache with deduplication, LRU eviction, and a configurable byte quota.
 - A compute-only WebAssembly runner using Wasmi with fuel and linear-memory limits and no host imports by default.
 - First-party UI surfaces for Code Studio, Markdown/DOCX documents, CSV/XLSX sheets with a bounded Excel-style formula evaluator, PPTX outline interchange, notes, and the encrypted vault.
-- WebRTC data-channel Messenger with manual signaling and explicit out-of-band SHA-256 DTLS fingerprint verification before sending.
+- WebRTC data-channel Messenger with manual signaling, explicit out-of-band SHA-256 DTLS fingerprint verification, user-supplied STUN/TURN configuration, and optional TURN relay-only candidate policy.
 - GitHub Actions CI for formatting, checking, and tests.
 
 ## Important implementation limits
@@ -23,7 +23,7 @@ Blaze is not yet a complete, daily-usable browser. An optional Servo host can re
 
 The native shell's wgpu renderer accelerates the app UI. Servo uses its own rendering context in a separate window. The optional Servo build enables GStreamer media support, but successful media playback and hardware decode depend on installed GStreamer plugins and platform drivers; no cross-device performance results are claimed.
 
-The office bridge supports tested DOCX/XLSX/PPTX interchange, but advanced layout, charts, themes and embedded media will not round-trip perfectly through Markdown/CSV. Sheets has a bounded formula evaluator, not a complete recalculating workbook engine. Messenger uses WebRTC data channels and requires manual signaling plus independent DTLS fingerprint confirmation; there is no contact directory, built-in signaling server or calling media. Audio/video call buttons remain disabled.
+The office bridge supports tested DOCX/XLSX/PPTX interchange, but advanced layout, charts, themes and embedded media will not round-trip perfectly through Markdown/CSV. Sheets has a bounded formula evaluator, not a complete recalculating workbook engine. Messenger uses WebRTC data channels and requires manual signaling plus independent DTLS fingerprint confirmation. It accepts user-configured STUN/TURN servers and can use relay-only ICE; relay-only hides host/reflexive IP candidates from the peer but the TURN operator still sees the client IP. There is no contact directory, built-in signaling server or calling media. Audio/video call buttons remain disabled.
 
 The Wasm runner currently executes compute-only modules. Its linker exposes no host functions, and it is not yet integrated into a third-party extension manager. The cache is a standalone module and is not yet connected to browser network/resource loading.
 
