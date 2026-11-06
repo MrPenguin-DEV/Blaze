@@ -1,0 +1,65 @@
+name: Publish Blaze v0.0.1 Beta
+
+on:
+  push:
+    tags:
+      - "v0.0.1-beta"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_FONTCONFIG_DLOPEN: "1"
+
+jobs:
+  linux-x86_64:
+    name: Build single-binary Linux beta
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config cmake clang \
+            libasound2-dev libudev-dev \
+            libx11-dev libx11-xcb-dev libxcb1-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libwayland-dev libxrandr-dev \
+            libxcursor-dev libxi-dev libgl1-mesa-dev libegl1-mesa-dev \
+            libfontconfig1-dev libfreetype6-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgstreamer-plugins-bad1.0-dev
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build unified Blaze executable
+        run: cargo build --locked --release -p blaze-desktop --features servo-host --bin blaze
+
+      - name: Package beta
+        run: |
+          set -euo pipefail
+          mkdir -p dist/blaze-v0.0.1-beta
+          install -m 0755 target/release/blaze dist/blaze-v0.0.1-beta/blaze
+          cp README.md CHANGELOG.md LICENSE-MIT LICENSE-APACHE dist/blaze-v0.0.1-beta/
+          cp docs/BETA_RELEASE.md docs/VIDEO_ACCELERATION.md dist/blaze-v0.0.1-beta/
+          tar -C dist -czf dist/blaze-v0.0.1-beta-linux-x86_64.tar.gz blaze-v0.0.1-beta
+          sha256sum dist/blaze-v0.0.1-beta-linux-x86_64.tar.gz > dist/SHA256SUMS
+
+      - name: Publish GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.0.1-beta
+          target_commitish: ${{ github.sha }}
+          name: Blaze v0.0.1 Beta
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            dist/blaze-v0.0.1-beta-linux-x86_64.tar.gz
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
