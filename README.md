@@ -13,13 +13,13 @@ Current version: 0.2.0 · Native shell prototype · Linux-first development, cro
 - A local-file vault using Argon2-derived keys and ChaCha20-Poly1305 authenticated encryption.
 - A content-addressed SHA-256 disk cache with deduplication, LRU eviction, and a configurable byte quota.
 - A compute-only WebAssembly runner using Wasmi with fuel and linear-memory limits and no host imports by default.
-- First-party UI surfaces for Code Studio, Markdown/DOCX documents, CSV/XLSX sheets with a bounded Excel-style formula evaluator, PPTX outline interchange, notes, and the encrypted vault.
+- First-party UI surfaces for Code Studio, Markdown/DOCX documents, an editable CSV/XLSX cell grid with a bounded Excel-style formula evaluator and numeric chart preview, PPTX outline interchange, notes, and the encrypted vault.
 - WebRTC data-channel Messenger with manual signaling, explicit out-of-band SHA-256 DTLS fingerprint verification, user-supplied STUN/TURN configuration, and optional TURN relay-only candidate policy.
 - GitHub Actions CI for formatting, checking, and tests.
 
 ## Important implementation limits
 
-Blaze is not yet a complete, daily-usable browser. An optional Servo host can render pages in a separate native window and forwards common pointer and keyboard input, but it is not embedded in the main shell's tab compositor. The main-shell tab strip does not yet own Servo WebViews, process-level tab isolation, downloads or profile-backed permission prompts.
+Blaze is not yet a complete, daily-usable browser. An optional Servo host can render pages in a separate native window and forwards common pointer and keyboard input, but it is not embedded in the main shell's tab compositor. The main-shell tab strip does not yet own Servo WebViews or process-level tab isolation. When it launches the standalone host, it now passes its saved tab URLs/titles, pin flags, active index, and the origin-permission snapshot. The Servo host restores those URLs in its own window; this is still not an in-process compositor bridge. Downloads remain pending.
 
 The native shell's wgpu renderer accelerates the app UI. Servo uses its own rendering context in a separate window. The optional Servo build enables GStreamer media support, but successful media playback and hardware decode depend on installed GStreamer plugins and platform drivers; no cross-device performance results are claimed.
 
