@@ -4,11 +4,13 @@ use blaze_core::{
     tabs::TabManager,
     TabId,
 };
+use blaze_profile::{BrowserProfile, PermissionDecision, PermissionKind};
 use blaze_vault::{read_encrypted, write_encrypted};
 use directories::ProjectDirs;
 use eframe::egui;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Section {
@@ -21,10 +23,11 @@ enum Section {
     Messenger,
     Calling,
     Vault,
+    Privacy,
 }
 
 impl Section {
-    const ALL: [(Self, &'static str); 9] = [
+    const ALL: [(Self, &'static str); 10] = [
         (Self::Browser, "Browser"),
         (Self::Code, "Code Studio"),
         (Self::Documents, "Documents"),
@@ -34,6 +37,7 @@ impl Section {
         (Self::Messenger, "Messenger"),
         (Self::Calling, "Calling"),
         (Self::Vault, "Vault"),
+        (Self::Privacy, "Privacy & Permissions"),
     ];
 }
 
@@ -67,6 +71,9 @@ pub struct BlazeApp {
     call_status: String,
     vault_password: String,
     vault_status: String,
+    profile: BrowserProfile,
+    profile_passphrase: String,
+    profile_status: String,
     toast: String,
 }
 
@@ -101,6 +108,9 @@ impl Default for BlazeApp {
             call_status: "Calling transport is not configured. No microphone or camera is accessed.".into(),
             vault_password: String::new(),
             vault_status: "Vault is locked. Enter a strong passphrase to load or save encrypted notes.".into(),
+            profile: BrowserProfile::default(),
+            profile_passphrase: String::new(),
+            profile_status: "Profile is in memory only until you save it encrypted.".into(),
             toast: String::new(),
         }
     }
@@ -132,6 +142,7 @@ impl eframe::App for BlazeApp {
                 Section::Messenger => self.messenger_panel(ui),
                 Section::Calling => self.calling_panel(ui),
                 Section::Vault => self.vault_panel(ui),
+                Section::Privacy => self.privacy_panel(ui),
             }
         });
     }
@@ -174,9 +185,9 @@ impl BlazeApp {
                 ui.add_space(20.0);
                 ui.separator();
                 ui.label(egui::RichText::new("STATUS").small().weak().strong());
-                ui.label(egui::RichText::new("Engine: disconnected").small());
+                ui.label(egui::RichText::new("Engine: Servo host is optional").small());
                 ui.label(egui::RichText::new("Vault: password locked").small());
-                ui.label(egui::RichText::new("Network: no service").small());
+                ui.label(egui::RichText::new("Profile: encrypted local").small());
                 ui.add_space(12.0);
                 ui.label(
                     egui::RichText::new("Blaze is a prototype. Browser rendering, media decode, and calling are not active yet.")
@@ -212,6 +223,11 @@ impl BlazeApp {
             }
             if ui.button("Go").clicked() {
                 navigate = true;
+            }
+            if ui.button("☆").on_hover_text("Bookmark current page").clicked() {
+                let title = self.tabs.get(self.active_tab).map(|tab| tab.title.clone()).unwrap_or_else(|| "Bookmark".into());
+                self.profile.add_bookmark(title, self.address.clone());
+                self.toast = "Bookmark added to this profile.".into();
             }
             if ui.button("+").on_hover_text("New tab").clicked() {
                 let id = self.tab_policy.open("about:blank");
@@ -285,13 +301,15 @@ impl BlazeApp {
             Ok(url) => {
                 let normalized = url.to_string();
                 self.address = normalized.clone();
+                let title = url.host_str().unwrap_or("Blank").to_owned();
                 if let Some(tab) = self.tabs.get_mut(self.active_tab) {
                     tab.url = normalized.clone();
-                    tab.title = url.host_str().unwrap_or("Blank").to_owned();
+                    tab.title = title.clone();
                     self.tab_policy.set_url(tab.id, normalized.clone());
                 }
+                self.profile.record_visit(title, normalized.clone(), unix_now(), 500);
                 self.browser_status = format!(
-                    "Address accepted: {normalized}. Engine status: not connected; no network page load occurred."
+                    "Address accepted: {normalized}. Use the separate blaze-servo host to render live pages."
                 );
             }
             Err(error) => {
@@ -541,6 +559,139 @@ impl BlazeApp {
         ui.label("This prototype does not yet integrate an OS keychain or an encrypted browser profile database.");
     }
 
+
+    fn privacy_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Privacy & Permissions");
+        ui.label("Site permissions default to Ask. Only an explicit Allow decision is considered granted.");
+        ui.add_space(8.0);
+
+        ui.checkbox(&mut self.profile.settings.do_not_track, "Send Do Not Track preference");
+        ui.checkbox(&mut self.profile.settings.global_privacy_control, "Send Global Privacy Control signal");
+        ui.checkbox(&mut self.profile.settings.block_third_party_cookies, "Block third-party cookies (policy preference)");
+        ui.checkbox(&mut self.profile.settings.telemetry_enabled, "Enable optional Blaze telemetry (off by default)");
+        ui.checkbox(&mut self.profile.settings.restore_last_session, "Restore last session metadata");
+
+        ui.separator();
+        ui.label(egui::RichText::new("Permissions for current address").strong());
+        let current_url = self.address.clone();
+        ui.label(&current_url);
+        let permission_kinds = [
+            PermissionKind::Camera,
+            PermissionKind::Microphone,
+            PermissionKind::Geolocation,
+            PermissionKind::Notifications,
+            PermissionKind::ClipboardRead,
+            PermissionKind::ClipboardWrite,
+            PermissionKind::Downloads,
+            PermissionKind::Popups,
+        ];
+        for kind in permission_kinds {
+            let decision = self.profile
+                .permission_for(&current_url, kind)
+                .unwrap_or(PermissionDecision::Ask);
+            ui.horizontal(|ui| {
+                ui.label(format!("{kind:?}: {decision:?}"));
+                if ui.small_button("Allow").clicked() {
+                    match self.profile.set_permission(&current_url, kind, PermissionDecision::Allow) {
+                        Ok(()) => self.profile_status = format!("{kind:?} allowed for this origin."),
+                        Err(error) => self.profile_status = format!("Permission change rejected: {error}"),
+                    }
+                }
+                if ui.small_button("Deny").clicked() {
+                    match self.profile.set_permission(&current_url, kind, PermissionDecision::Deny) {
+                        Ok(()) => self.profile_status = format!("{kind:?} denied for this origin."),
+                        Err(error) => self.profile_status = format!("Permission change rejected: {error}"),
+                    }
+                }
+                if ui.small_button("Ask").clicked() {
+                    match self.profile.set_permission(&current_url, kind, PermissionDecision::Ask) {
+                        Ok(()) => self.profile_status = format!("{kind:?} reset to Ask."),
+                        Err(error) => self.profile_status = format!("Permission change rejected: {error}"),
+                    }
+                }
+            });
+        }
+
+        ui.separator();
+        ui.label(egui::RichText::new("Bookmarks").strong());
+        let bookmarks = self.profile.bookmarks.clone();
+        let mut open_bookmark: Option<String> = None;
+        let mut remove_bookmark: Option<String> = None;
+        for bookmark in bookmarks {
+            ui.horizontal(|ui| {
+                ui.label(&bookmark.title);
+                ui.small(&bookmark.url);
+                if ui.small_button("Open").clicked() {
+                    open_bookmark = Some(bookmark.url.clone());
+                }
+                if ui.small_button("Remove").clicked() {
+                    remove_bookmark = Some(bookmark.url.clone());
+                }
+            });
+        }
+        if let Some(url) = open_bookmark {
+            self.address = url;
+            self.section = Section::Browser;
+            self.navigate();
+        }
+        if let Some(url) = remove_bookmark {
+            self.profile.remove_bookmark(&url);
+        }
+
+        ui.separator();
+        ui.label(egui::RichText::new("Encrypted browser profile").strong());
+        ui.label("Bookmarks, capped visit history, site permissions, and privacy settings are encrypted together.");
+        ui.horizontal(|ui| {
+            ui.label("Profile passphrase");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.profile_passphrase)
+                    .password(true)
+                    .desired_width(300.0)
+                    .hint_text("Strong unique passphrase"),
+            );
+        });
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!self.profile_passphrase.is_empty(), egui::Button::new("Save encrypted profile")).clicked() {
+                self.save_profile();
+            }
+            if ui.add_enabled(!self.profile_passphrase.is_empty(), egui::Button::new("Unlock profile")).clicked() {
+                self.load_profile();
+            }
+        });
+        ui.label(&self.profile_status);
+        ui.label("The engine must consult this policy before granting permissions. The standalone profile crate is not yet wired into Servo's permission delegates.");
+        ui.label(format!("History entries retained in memory: {}", self.profile.history.len()));
+    }
+
+    fn save_profile(&mut self) {
+        let Some(path) = profile_file_path() else {
+            self.profile_status = "Could not resolve the profile data directory.".into();
+            return;
+        };
+        match self.profile.save_encrypted(&path, self.profile_passphrase.as_bytes()) {
+            Ok(()) => {
+                self.profile_status = format!("Encrypted profile saved to {}.", path.display());
+                self.toast = "Encrypted profile saved.".into();
+            }
+            Err(error) => self.profile_status = format!("Profile save failed: {error}"),
+        }
+    }
+
+    fn load_profile(&mut self) {
+        let Some(path) = profile_file_path() else {
+            self.profile_status = "Could not resolve the profile data directory.".into();
+            return;
+        };
+        match BrowserProfile::load_encrypted(&path, self.profile_passphrase.as_bytes()) {
+            Ok(profile) => {
+                self.profile = profile;
+                self.profile_status = "Profile authenticated and unlocked.".into();
+                self.toast = "Browser profile unlocked.".into();
+            }
+            Err(error) => self.profile_status = format!("Profile unlock failed: {error}"),
+        }
+    }
+
     fn save_notes_to_vault(&mut self) {
         let Some(path) = vault_file_path() else {
             self.vault_status = "Could not resolve an application data directory.".into();
@@ -615,4 +766,16 @@ fn safe_output_path(name: &str) -> Option<PathBuf> {
 fn vault_file_path() -> Option<PathBuf> {
     let project = ProjectDirs::from("dev", "Blaze", "Blaze")?;
     Some(project.data_dir().join("vault").join("notes.blz"))
+}
+
+fn profile_file_path() -> Option<PathBuf> {
+    let project = ProjectDirs::from("dev", "Blaze", "Blaze")?;
+    Some(project.data_dir().join("profile").join("profile.blz"))
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
 }
