@@ -44,7 +44,7 @@ Integrate and benchmark platform decode backends. A target of 50 live tabs all d
 
 ### Office and communication
 
-The office bridge now has DOCX/XLSX/PPTX interchange tests and a CSV-backed Excel-style formula evaluator with a 10,000-cell range cap. Markdown conversion is lossy for advanced layout, charts, theme and media objects; full Office fidelity, formula persistence/recalculation, cell-grid virtualization, and slide rendering remain. Messenger uses WebRTC data channels and blocks sending until the SDP SHA-256 DTLS fingerprint matches a value the user enters after independent verification. Long-term identity, a signaling/contacts service, TURN configuration UX, and message history persistence remain. Calling still needs device capture, media tracks, echo cancellation, NAT traversal, and permission integration.
+The office bridge now has DOCX/XLSX/PPTX interchange tests and a CSV-backed Excel-style formula evaluator with a 10,000-cell range cap. Markdown conversion is lossy for advanced layout, charts, theme and media objects; full Office fidelity, formula persistence/recalculation, cell-grid virtualization, and slide rendering remain. Messenger uses WebRTC data channels and blocks sending until the SDP SHA-256 DTLS fingerprint matches a value the user enters after independent verification. It now accepts explicit STUN/TURN URLs and credentials and offers TURN relay-only ICE to hide host/reflexive candidate IPs from the remote peer (the TURN operator can still see the client IP). Long-term identity, a signaling/contacts service, secure credential storage, and message history persistence remain. Calling still needs device capture, media tracks, echo cancellation, NAT traversal, and permission integration.
 
 ### Security
 
