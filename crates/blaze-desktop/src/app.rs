@@ -63,6 +63,8 @@ pub struct BlazeApp {
     document_markdown: String,
     sheet_title: String,
     sheet_csv: String,
+    sheet_formula: String,
+    sheet_formula_result: String,
     presentation_title: String,
     slide_outline: String,
     office_import_path: String,
@@ -108,6 +110,8 @@ impl Default for BlazeApp {
             document_markdown: "# Untitled document\n\nStart writing here.\n".into(),
             sheet_title: "Untitled spreadsheet".into(),
             sheet_csv: "Name,Value\nBlaze,1\n".into(),
+            sheet_formula: "=SUM(B2:B2)".into(),
+            sheet_formula_result: "Enter a formula to calculate against the CSV grid.".into(),
             presentation_title: "Untitled presentation".into(),
             office_import_path: "document.docx".into(),
             office_export_path: "document.docx".into(),
@@ -457,7 +461,7 @@ impl BlazeApp {
 
     fn sheets_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Sheets");
-        ui.label("CSV editor plus XLSX import/export. Formula calculation, charts, and large-grid virtualization remain pending.");
+        ui.label("CSV editor, XLSX import/export and Excel-style formula calculation. Charts and large-grid virtualization remain pending.");
         ui.horizontal(|ui| {
             ui.label("Title");
             ui.text_edit_singleline(&mut self.sheet_title);
@@ -496,8 +500,21 @@ impl BlazeApp {
             egui::TextEdit::multiline(&mut self.sheet_csv)
                 .font(egui::TextStyle::Monospace)
                 .desired_width(f32::INFINITY)
-                .desired_rows(24),
+                .desired_rows(18),
         );
+        ui.separator();
+        ui.label(egui::RichText::new("Formula bar").strong());
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut self.sheet_formula);
+            if ui.button("Evaluate").clicked() {
+                match blaze_office::evaluate_csv_formula(&self.sheet_csv, &self.sheet_formula) {
+                    Ok(value) => self.sheet_formula_result = value,
+                    Err(error) => self.sheet_formula_result = format!("Formula error: {error}"),
+                }
+            }
+        });
+        ui.label(format!("Result: {}", self.sheet_formula_result));
+        ui.label("Formula references use A1 notation. The evaluator supports a wide Excel-style function set and caps materialized ranges at 10,000 cells.");
     }
 
     fn slides_panel(&mut self, ui: &mut egui::Ui) {
