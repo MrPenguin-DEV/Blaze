@@ -6,7 +6,7 @@ The desktop application is written in Rust and uses eframe/egui with its wgpu re
 
 ## Browser engine boundary
 
-Servo is the leading engine candidate. The current adapter contract normalizes user navigation and defines the boundary where engine navigation, lifecycle, and capability reporting belong. A standalone Servo host is connected as an optional binary. Each tab owns a WebView; the host keeps at most two warm views (active and one recently used unpinned view), dropping other unpinned views and restoring them from URL metadata. This gives quick return to a warm tab and bounds renderer count, but dropping a view loses its in-memory page state. This host remains separate from the main wgpu UI.
+Servo is the leading engine candidate. The current adapter contract normalizes user navigation and defines the boundary where engine navigation, lifecycle, and capability reporting belong. A standalone Servo host is connected as an optional binary. Each tab owns a WebView; the host normally keeps two warm views (active and one recently used unpinned view); pinned background views are exempt and can raise the count, while other unpinned views are dropped and restoring them from URL metadata. This gives quick return to a warm tab and bounds renderer count, but dropping a view loses its in-memory page state. This host remains separate from the main wgpu UI.
 
 Servo's embedding sequence includes:
 1. An EventLoopWaker that schedules Servo event-loop work.
