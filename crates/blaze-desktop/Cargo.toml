@@ -21,6 +21,7 @@ servo-host = [
     "dep:webrender_api",
     "dep:tracing",
     "dep:rustls",
+    "dep:url",
 ]
 
 [dependencies]
@@ -43,6 +44,7 @@ winit = { version = "0.30.13", optional = true }
 webrender_api = { version = "0.70", optional = true }
 tracing = { version = "0.1", optional = true }
 rustls = { version = "0.23", features = ["aws_lc_rs"], optional = true }
+url = { version = "2", optional = true }
 
 [lints]
 workspace = true
