@@ -19,14 +19,14 @@ const MAX_FRAME_NODES: usize = 96;
 const MAX_TEXT_BYTES: usize = 4096;
 
 /// One safe, native-rendered UI frame returned by a Wasm web-app module.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct WasmAppFrame {
     pub title: String,
     pub nodes: Vec<WasmAppNode>,
 }
 
 /// Supported widgets. No raw HTML, JavaScript, native handles or arbitrary URLs.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WasmAppNode {
     Heading { text: String },
