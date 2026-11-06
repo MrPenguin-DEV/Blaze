@@ -57,7 +57,7 @@ jobs:
     name: Compile optional Servo browser mode in the unified executable
     runs-on: ubuntu-latest
     env:
-      RUST_FONTCONFIG_DLOPEN: "1"
+      RUST_FONTCONFIG_DLOPEN: "on"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
