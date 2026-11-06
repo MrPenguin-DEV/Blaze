@@ -48,7 +48,11 @@ impl Spreadsheet {
 }
 
 fn csv_escape(cell: &str) -> String {
-    if cell.contains([',', '"', '\n', '\r']) {
+    let needs_quotes = cell.contains(',')
+        || cell.contains('"')
+        || cell.contains('\n')
+        || cell.contains('\r');
+    if needs_quotes {
         format!("\"{}\"", cell.replace('"', "\"\""))
     } else {
         cell.to_owned()
