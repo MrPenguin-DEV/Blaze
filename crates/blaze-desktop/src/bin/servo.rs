@@ -125,6 +125,7 @@ impl AppState {
         self.active_tab.set(index);
         *self.current_url.borrow_mut() = url.to_string();
         if let Some(webview) = self.webview.borrow().as_ref() {
+            webview.clear_session_history();
             webview.load(url);
         }
         self.update_window_title();
@@ -156,6 +157,7 @@ impl AppState {
             Ok(url) => {
                 *self.current_url.borrow_mut() = url.to_string();
                 if let Some(webview) = self.webview.borrow().as_ref() {
+                    webview.clear_session_history();
                     webview.load(url);
                 }
             }
@@ -200,6 +202,7 @@ impl AppState {
                 Ok(url) => {
                     *self.current_url.borrow_mut() = url.to_string();
                     if let Some(webview) = self.webview.borrow().as_ref() {
+                        webview.clear_session_history();
                         webview.load(url);
                     }
                 }
