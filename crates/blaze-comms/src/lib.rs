@@ -21,7 +21,7 @@ use webrtc::peer_connection::sdp::RTCSdpType;
 
 /// Signaling payloads exchanged through an authenticated out-of-band service.
 /// ICE candidates are sent separately so the connection can use trickle ICE.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload")]
 pub enum SignalingMessage {
     Description(RTCSessionDescription),
@@ -176,7 +176,13 @@ mod tests {
         let message = SignalingMessage::Description(description);
         let serialized = serde_json::to_string(&message).unwrap();
         let decoded: SignalingMessage = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(decoded, message);
+        match decoded {
+            SignalingMessage::Description(decoded_description) => {
+                assert_eq!(decoded_description.sdp, description.sdp);
+                assert_eq!(decoded_description.sdp_type, description.sdp_type);
+            }
+            SignalingMessage::Candidate(_) => panic!("expected a description payload"),
+        }
     }
 
     #[test]
