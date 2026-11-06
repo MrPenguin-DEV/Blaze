@@ -12,3 +12,6 @@ wasmi.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+wat = "1"
