@@ -51,10 +51,10 @@ jobs:
           set -euo pipefail
           mkdir -p dist/blaze-v0.0.1-beta
           install -m 0755 target/release/blaze dist/blaze-v0.0.1-beta/blaze
-          cp README.md CHANGELOG.md LICENSE-MIT dist/blaze-v0.0.1-beta/
+          cp README.md CHANGELOG.md LICENSE-MIT VERSION Cargo.lock dist/blaze-v0.0.1-beta/
           cp docs/BETA_RELEASE.md docs/VIDEO_ACCELERATION.md dist/blaze-v0.0.1-beta/
-          tar -C dist -czf dist/blaze-v0.0.1-beta-linux-x86_64.tar.gz blaze-v0.0.1-beta
-          sha256sum dist/blaze-v0.0.1-beta-linux-x86_64.tar.gz > dist/SHA256SUMS
+          tar -czf dist/blaze-v0.0.1-beta-linux-x86_64.tar.gz -C dist blaze-v0.0.1-beta
+          (cd dist && sha256sum blaze-v0.0.1-beta-linux-x86_64.tar.gz > SHA256SUMS)
 
       - name: Publish GitHub prerelease
         uses: softprops/action-gh-release@v2
