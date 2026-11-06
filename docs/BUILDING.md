@@ -29,7 +29,7 @@ embed the web renderer yet.
 ## Servo browser host
 
 The Servo dependency is opt-in so that users who only need the workspace shell
-do not compile the full browser engine. Build both binaries:
+do not compile the full browser engine. Build the Blaze executable:
 
 ```sh
 cargo build --release -p blaze-desktop --features servo-host --bins
@@ -126,3 +126,10 @@ cargo build --manifest-path examples/wasm-webapp/Cargo.toml --target wasm32-unkn
 Open `target/wasm32-unknown-unknown/release/blaze_wasm_counter.wasm` in Code Studio by setting the module path and choosing **Run WASM web app**. The sample uses Blaze's bounded UI ABI; it is not an arbitrary HTML/JavaScript website. The native host draws its UI/canvas primitives through eframe/wgpu.
 
 For the optional Linux media backend, see [VIDEO_ACCELERATION.md](VIDEO_ACCELERATION.md) and run `scripts/probe-gstreamer-hwdecode.sh` after installing the relevant GStreamer plugins and GPU driver.
+
+
+The browser is bundled as a mode of the same executable. To launch it directly:
+
+```sh
+cargo run -p blaze-desktop --features servo-host --bin blaze -- --servo-host https://example.com
+```
