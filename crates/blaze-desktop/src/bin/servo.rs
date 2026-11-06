@@ -13,6 +13,7 @@ use blaze_browser::normalize_address;
 use embedder_traits::EventLoopWaker;
 use euclid::Scale;
 use servo::{
+    webview_delegate::{NavigationRequest, PermissionRequest},
     InputEvent, RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta,
     WheelEvent, WheelMode, WindowRenderingContext,
 };
@@ -52,6 +53,30 @@ struct AppState {
 impl servo::WebViewDelegate for AppState {
     fn notify_new_frame_ready(&self, _webview: WebView) {
         self.window.request_redraw();
+    }
+
+    fn notify_page_title_changed(&self, _webview: WebView, title: Option<String>) {
+        let title = title.filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "New Tab".to_owned());
+        self.window.set_title(&format!("{title} — Blaze"));
+    }
+
+    fn notify_url_changed(&self, _webview: WebView, url: Url) {
+        self.window.set_title(&format!("{url} — Blaze"));
+    }
+
+    fn request_permission(&self, _webview: WebView, request: PermissionRequest) {
+        // Device access stays denied until a verified profile permission
+        // prompt is connected to this delegate.
+        request.deny();
+    }
+
+    fn request_navigation(&self, _webview: WebView, request: NavigationRequest) {
+        // Do not allow file:, javascript:, data:, or custom schemes to navigate.
+        match request.url.scheme() {
+            "http" | "https" => request.allow(),
+            _ => request.deny(),
+        }
     }
 }
 
