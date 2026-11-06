@@ -112,15 +112,15 @@ mod tests {
 
     #[test]
     fn runs_a_pure_compute_extension() {
-        let wasm = br#"(module (func (export "run")))"#;
-        let report = run_compute_module(wasm, "run", SandboxConfig::default()).unwrap();
+        let wasm = wat::parse_str(r#"(module (func (export "run")))"#).unwrap();
+        let report = run_compute_module(&wasm, "run", SandboxConfig::default()).unwrap();
         assert!(report.fuel_consumed <= report.fuel_limit);
     }
 
     #[test]
     fn refuses_missing_entrypoint() {
-        let wasm = br#"(module (func (export "other")))"#;
-        let error = run_compute_module(wasm, "run", SandboxConfig::default()).unwrap_err();
+        let wasm = wat::parse_str(r#"(module (func (export "other")))"#).unwrap();
+        let error = run_compute_module(&wasm, "run", SandboxConfig::default()).unwrap_err();
         assert!(matches!(error, SandboxError::InvalidEntrypoint(_)));
     }
 }
