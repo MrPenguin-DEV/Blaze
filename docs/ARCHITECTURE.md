@@ -56,7 +56,7 @@ blaze-workspace contains Rust data models and format helpers for:
 
 blaze-wasm executes no-argument/no-result compute-only Wasm exports. It sets a fuel budget, a maximum stack/recursion depth, and linear-memory/store limits. The default linker contains no host imports, so a guest cannot access browser state, files, network, clipboard, or devices through Blaze. The runner is not yet connected to a managed extension catalog; adding capability host calls requires explicit review and OS process isolation.
 
-The desktop panels are starter surfaces. Full language servers, terminal isolation, DOCX/XLSX/PPTX interoperability, sync, contacts, calling, and richer extension APIs remain to be implemented.
+The Sheets desktop panel now renders an editable CSV-backed cell grid with row/column insertion, a formula bar and a compact numeric preview chart. The grid remains CSV-backed; this is not yet a full workbook engine with formatting, cell styles, persistent formula graphs, or chart objects. The desktop panels are starter surfaces. Full language servers, terminal isolation, DOCX/XLSX/PPTX interoperability, sync, contacts, calling, and richer extension APIs remain to be implemented.
 
 ## Storage optimization
 
