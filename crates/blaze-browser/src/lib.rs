@@ -29,6 +29,13 @@ pub fn normalize_address(input: &str) -> Result<Url, NavigationError> {
         return Url::parse("about:blank").map_err(|_| NavigationError::InvalidUrl);
     }
 
+    let lowered = input.to_ascii_lowercase();
+    for scheme in ["javascript:", "data:", "file:", "ftp:", "chrome:", "blob:"] {
+        if lowered.starts_with(scheme) {
+            return Err(NavigationError::UnsupportedScheme);
+        }
+    }
+
     if input.chars().any(char::is_whitespace) && !input.contains("://") {
         let mut search = Url::parse("https://duckduckgo.com/?q=")
             .map_err(|_| NavigationError::InvalidUrl)?;
@@ -36,8 +43,12 @@ pub fn normalize_address(input: &str) -> Result<Url, NavigationError> {
         return Ok(search);
     }
 
-    let candidate = if input.contains("://") {
-        input.to_owned()
+    let candidate = if input.contains("://") || input.starts_with("localhost:") {
+        if input.starts_with("localhost:") {
+            format!("http://{input}")
+        } else {
+            input.to_owned()
+        }
     } else {
         format!("https://{input}")
     };
@@ -91,6 +102,10 @@ mod tests {
         );
         assert_eq!(
             normalize_address("http://localhost:8080").unwrap().scheme(),
+            "http"
+        );
+        assert_eq!(
+            normalize_address("localhost:8080").unwrap().scheme(),
             "http"
         );
     }
