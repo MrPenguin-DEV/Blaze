@@ -10,13 +10,15 @@ use std::error::Error;
 use std::rc::Rc;
 
 use blaze_browser::normalize_address;
+use blaze_profile::{PermissionDecision, PermissionKind, SitePermission};
 use embedder_traits::EventLoopWaker;
 use euclid::Scale;
 use servo::{
     webview_delegate::{NavigationRequest, PermissionRequest},
     InputEvent, Key, KeyState, KeyboardEvent, Modifiers as ServoModifiers,
     MouseButton as ServoMouseButton, MouseButtonAction, MouseButtonEvent,
-    MouseLeftViewportEvent, MouseMoveEvent, NamedKey, RenderingContext,
+    MouseLeftViewportEvent, MouseMoveEvent, NamedKey, PermissionFeature,
+    RenderingContext,
     Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta, WheelEvent, WheelMode,
     WindowRenderingContext,
 };
@@ -65,6 +67,7 @@ struct AppState {
     modifiers: Cell<ModifiersState>,
     address_editing: Cell<bool>,
     address_buffer: RefCell<String>,
+    site_permissions: Vec<SitePermission>,
 }
 
 impl AppState {
@@ -321,9 +324,35 @@ impl servo::WebViewDelegate for AppState {
         }
     }
 
-    fn request_permission(&self, _webview: WebView, request: PermissionRequest) {
-        // Default-deny until the profile policy is connected to this process.
-        request.deny();
+    fn request_permission(&self, webview: WebView, request: PermissionRequest) {
+        let Some(url) = webview.url() else {
+            request.deny();
+            return;
+        };
+        let origin = url.origin().ascii_serialization();
+        let kind = match request.feature() {
+            PermissionFeature::Camera => PermissionKind::Camera,
+            PermissionFeature::Microphone => PermissionKind::Microphone,
+            PermissionFeature::Geolocation => PermissionKind::Geolocation,
+            PermissionFeature::Notifications => PermissionKind::Notifications,
+            // The profile does not currently model these Servo permissions.
+            _ => {
+                request.deny();
+                return;
+            }
+        };
+
+        let decision = self.site_permissions
+            .iter()
+            .rev()
+            .find(|entry| entry.origin == origin && entry.kind == kind)
+            .map(|entry| entry.decision)
+            .unwrap_or(PermissionDecision::Ask);
+
+        match decision {
+            PermissionDecision::Allow => request.allow(),
+            PermissionDecision::Ask | PermissionDecision::Deny => request.deny(),
+        }
     }
 
     fn request_navigation(&self, _webview: WebView, request: NavigationRequest) {
@@ -395,6 +424,10 @@ impl ApplicationHandler<WakerEvent> for App {
             modifiers: Cell::new(ModifiersState::empty()),
             address_editing: Cell::new(false),
             address_buffer: RefCell::new(String::new()),
+            site_permissions: std::env::var("BLAZE_SITE_PERMISSIONS")
+                .ok()
+                .and_then(|json| serde_json::from_str::<Vec<SitePermission>>(&json).ok())
+                .unwrap_or_default(),
         });
 
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
