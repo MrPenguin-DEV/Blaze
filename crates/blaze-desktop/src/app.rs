@@ -57,6 +57,8 @@ pub struct BlazeApp {
     browser_status: String,
     code_name: String,
     code_source: String,
+    wasm_path: String,
+    wasm_status: String,
     document_title: String,
     document_markdown: String,
     sheet_title: String,
@@ -100,6 +102,8 @@ impl Default for BlazeApp {
             browser_status: "Browser engine not connected yet. The native shell is ready.".into(),
             code_name: "scratch.rs".into(),
             code_source: "fn main() {\n    println!(\"Hello from Blaze!\");\n}\n".into(),
+            wasm_path: "extension.wasm".into(),
+            wasm_status: "Wasm runner: choose a compiled module with a no-argument run export.".into(),
             document_title: "Untitled document".into(),
             document_markdown: "# Untitled document\n\nStart writing here.\n".into(),
             sheet_title: "Untitled spreadsheet".into(),
@@ -359,8 +363,48 @@ impl BlazeApp {
             egui::TextEdit::multiline(&mut self.code_source)
                 .font(egui::TextStyle::Monospace)
                 .desired_width(f32::INFINITY)
-                .desired_rows(24),
+                .desired_rows(18),
         );
+
+        ui.separator();
+        ui.label(egui::RichText::new("WASM compute sandbox").strong());
+        ui.label("Runs a compiled WebAssembly binary with no host imports. It cannot access files, network, browser state, clipboard, or devices.");
+        ui.horizontal(|ui| {
+            ui.label("Module");
+            ui.text_edit_singleline(&mut self.wasm_path);
+            if ui.button("Run .wasm").clicked() {
+                self.run_wasm_module();
+            }
+        });
+        ui.label("Entry point: run() with no arguments and no return value. Fuel: 5,000,000. Guest memory: 32 MiB.");
+        ui.label(&self.wasm_status);
+    }
+
+    fn run_wasm_module(&mut self) {
+        let path = PathBuf::from(self.wasm_path.trim());
+        match fs::read(&path) {
+            Ok(bytes) => match blaze_wasm::run_compute_module(
+                &bytes,
+                "run",
+                blaze_wasm::SandboxConfig::default(),
+            ) {
+                Ok(report) => {
+                    self.wasm_status = format!(
+                        "Execution completed. Fuel used: {} / {} ({} remaining).",
+                        report.fuel_consumed,
+                        report.fuel_limit,
+                        report.fuel_remaining
+                    );
+                    self.toast = format!("WASM module {} completed.", path.display());
+                }
+                Err(error) => {
+                    self.wasm_status = format!("WASM execution rejected or trapped: {error}");
+                }
+            },
+            Err(error) => {
+                self.wasm_status = format!("Could not read {}: {error}", path.display());
+            }
+        }
     }
 
     fn documents_panel(&mut self, ui: &mut egui::Ui) {
