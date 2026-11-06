@@ -72,8 +72,6 @@ jobs:
   servo-host:
     name: Compile optional Servo browser mode in the unified executable
     runs-on: ubuntu-latest
-    env:
-      RUST_FONTCONFIG_DLOPEN: "on"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -97,6 +95,9 @@ jobs:
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+
+      - name: Inspect Fontconfig feature selection
+        run: cargo tree -p blaze-desktop --features servo-host -e features -i yeslogic-fontconfig-sys
 
       - name: Check Servo host binaries
         run: cargo check -p blaze-desktop --features servo-host --bin blaze
