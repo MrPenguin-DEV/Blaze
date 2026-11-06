@@ -165,7 +165,7 @@ impl AppState {
     }
 
     fn trim_background_webviews(&self) {
-        const MAX_LIVE_WEBVIEWS: usize = 4;
+        const MAX_LIVE_WEBVIEWS: usize = 2;
         let active = self.active_tab.get();
         let tabs = self.tabs.borrow();
         let mut views = self.webviews.borrow_mut();
@@ -406,8 +406,12 @@ impl AppState {
 }
 
 impl servo::WebViewDelegate for AppState {
-    fn notify_new_frame_ready(&self, _webview: WebView) {
-        self.window.request_redraw();
+    fn notify_new_frame_ready(&self, webview: WebView) {
+        // Hidden tabs can keep running tasks, but their new frames do not need
+        // to schedule a compositor repaint while another tab is visible.
+        if self.tab_index_for_webview(&webview) == Some(self.active_tab.get()) {
+            self.window.request_redraw();
+        }
     }
 
     fn notify_page_title_changed(&self, webview: WebView, title: Option<String>) {
@@ -692,7 +696,7 @@ impl ApplicationHandler<WakerEvent> for App {
                     webview.set_hidpi_scale_factor(Scale::new(scale_factor as f32));
                 }
             }
-            _ => {}            _ => {}
+            _ => {}
         }
 
         // Servo requires the embedder to pump its event loop after forwarding
