@@ -10,6 +10,7 @@ members = [
     "crates/blaze-desktop",
     "crates/blaze-office",
     "crates/blaze-profile",
+    "crates/blaze-comms",
 ]
 
 [workspace.package]
