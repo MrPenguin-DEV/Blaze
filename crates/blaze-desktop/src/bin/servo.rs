@@ -212,7 +212,7 @@ impl AppState {
                 WinitKey::Named(WinitNamedKey::Enter) => self.commit_address(),
                 WinitKey::Named(WinitNamedKey::Escape) => {
                     self.address_editing.set(false);
-                    self.window.set_title(&format!("{} — Blaze", self.current_url.borrow()));
+                    self.update_window_title();
                 }
                 WinitKey::Named(WinitNamedKey::Backspace) => {
                     self.address_buffer.borrow_mut().pop();
@@ -262,7 +262,7 @@ impl AppState {
             return true;
         }
 
-        if control && matches!(event.logical_key, WinitKey::Named(WinitNamedKey::Tab)) {
+        if control && matches!(&event.logical_key, WinitKey::Named(WinitNamedKey::Tab)) {
             self.cycle_tab(modifiers.shift_key());
             return true;
         }
@@ -328,8 +328,8 @@ impl servo::WebViewDelegate for AppState {
 
     fn request_navigation(&self, _webview: WebView, request: NavigationRequest) {
         // Reject file:, javascript:, data:, and custom schemes.
-        match request.url.scheme() {
-            "http" | "https" => request.allow(),
+        match (request.url.scheme(), request.url.as_str()) {
+            ("http" | "https", _) | ("about", "about:blank") => request.allow(),
             _ => request.deny(),
         }
     }
