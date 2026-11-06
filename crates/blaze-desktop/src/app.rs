@@ -1454,3 +1454,29 @@ fn unix_now() -> u64 {
         .map(|duration| duration.as_secs())
         .unwrap_or_default()
 }
+
+
+#[cfg(test)]
+mod desktop_helper_tests {
+    use super::*;
+
+    #[test]
+    fn spreadsheet_column_labels_use_excel_a1_letters() {
+        assert_eq!(spreadsheet_column_name(0), "A");
+        assert_eq!(spreadsheet_column_name(25), "Z");
+        assert_eq!(spreadsheet_column_name(26), "AA");
+        assert_eq!(spreadsheet_column_name(701), "ZZ");
+        assert_eq!(spreadsheet_column_name(702), "AAA");
+    }
+
+    #[test]
+    fn spreadsheet_grid_csv_encoding_round_trips_quoted_cells() {
+        let rows = vec![
+            vec!["Name".to_owned(), "Comment".to_owned()],
+            vec!["Blaze".to_owned(), "fast, \"safe\"".to_owned()],
+            vec!["new\nline".to_owned(), "a,b".to_owned()],
+        ];
+        let csv = encode_csv_rows(&rows);
+        assert_eq!(blaze_office::parse_csv(&csv).unwrap(), rows);
+    }
+}
