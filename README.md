@@ -7,21 +7,23 @@ Current version: 0.2.0 · Native shell prototype · Linux-first development, cro
 ## What is implemented in this repository
 
 - A native Rust desktop shell rendered with egui/eframe and its wgpu graphics backend. It does not use Electron or an embedded system WebView.
+- An optional standalone Servo 0.8 page-renderer binary with mouse, keyboard and wheel input, browser shortcuts, HTTP(S)-only navigation and a GStreamer media backend. The Servo host currently opens in a separate native window rather than inside the main shell.
 - Browser address validation, safe-scheme filtering, and a strict browser-engine adapter contract.
 - Tab lifecycle policy with foreground/background/suspended states, pinning, unsaved-tab protection, and a configurable live-tab ceiling.
 - A local-file vault using Argon2-derived keys and ChaCha20-Poly1305 authenticated encryption.
 - A content-addressed SHA-256 disk cache with deduplication, LRU eviction, and a configurable byte quota.
 - A compute-only WebAssembly runner using Wasmi with fuel and linear-memory limits and no host imports by default.
-- First-party UI surfaces for Code Studio, Markdown documents, CSV sheets, slide outlines, notes, message drafts, calling UI, and the encrypted vault.
+- First-party UI surfaces for Code Studio, Markdown/DOCX documents, CSV/XLSX sheets with a bounded Excel-style formula evaluator, PPTX outline interchange, notes, and the encrypted vault.
+- WebRTC data-channel Messenger with manual signaling and explicit out-of-band SHA-256 DTLS fingerprint verification before sending.
 - GitHub Actions CI for formatting, checking, and tests.
 
 ## Important implementation limits
 
-Blaze is not yet a complete, daily-usable web browser. The native shell and browser controls are present, but a production page renderer is not connected. The adapter is the integration point for Servo. Servo embedding requires an event-loop waker, a Servo instance, a rendering context, WebView delegation, frame presentation, and forwarding input events. It is not enough to add an engine dependency.
+Blaze is not yet a complete, daily-usable browser. An optional Servo host can render pages in a separate native window and forwards common pointer and keyboard input, but it is not embedded in the main shell's tab compositor. The main-shell tab strip does not yet own Servo WebViews, process-level tab isolation, downloads or profile-backed permission prompts.
 
-The native shell's wgpu renderer accelerates the app UI. It does **not** mean web content is already GPU-composited. Web-page rendering, GPU surfaces, hardware video decode, WebRTC, and renderer process isolation are not active in this prototype.
+The native shell's wgpu renderer accelerates the app UI. Servo uses its own rendering context in a separate window. The optional Servo build enables GStreamer media support, but successful media playback and hardware decode depend on installed GStreamer plugins and platform drivers; no cross-device performance results are claimed.
 
-The productivity panels are useful starter surfaces, not full Office replacements. Documents are Markdown-first, spreadsheets use CSV, and presentations are outline-based. DOCX/XLSX/PPTX compatibility, formulas, charts, slide layout, language servers, and terminal integration are pending. Messenger is a local draft panel; calling buttons are disabled. No messaging service, verified identity, reviewed end-to-end encryption protocol, or media transport is included.
+The office bridge supports tested DOCX/XLSX/PPTX interchange, but advanced layout, charts, themes and embedded media will not round-trip perfectly through Markdown/CSV. Sheets has a bounded formula evaluator, not a complete recalculating workbook engine. Messenger uses WebRTC data channels and requires manual signaling plus independent DTLS fingerprint confirmation; there is no contact directory, built-in signaling server or calling media. Audio/video call buttons remain disabled.
 
 The Wasm runner currently executes compute-only modules. Its linker exposes no host functions, and it is not yet integrated into a third-party extension manager. The cache is a standalone module and is not yet connected to browser network/resource loading.
 
@@ -38,9 +40,13 @@ cargo fmt --all -- --check
 cargo check --workspace
 cargo test --workspace
 cargo run -p blaze-desktop
+
+# Optional Servo page renderer and GStreamer media backend
+cargo build -p blaze-desktop --features servo-host --bins
+cargo run -p blaze-desktop --features servo-host --bin blaze
 ```
 
-On Linux, the windowing/graphics development packages required by winit/wgpu may need to be installed for your distribution. Hardware acceleration depends on the graphics driver and backend available on the host.
+The optional Servo feature is a large native build and requires GStreamer development libraries and runtime plugins for your platform. On Linux, the windowing/graphics development packages required by winit/wgpu may need to be installed for your distribution. Hardware acceleration depends on the graphics driver and backend available on the host.
 
 ## Workspace layout
 
@@ -50,6 +56,6 @@ On Linux, the windowing/graphics development packages required by winit/wgpu may
 - `crates/blaze-vault` — authenticated encryption and encrypted file helpers.
 - `crates/blaze-workspace` — app data models and export helpers.
 - `crates/blaze-wasm` — compute-only, resource-limited Wasm runtime.
-- `crates/blaze-desktop` — native desktop shell and app panels.
+- `crates/blaze-desktop` — native desktop shell, app panels, and optional Servo browser host.
 - `docs/ARCHITECTURE.md` — system architecture.
 - `docs/IMPLEMENTATION_STATUS.md` — implementation status and remaining work.
