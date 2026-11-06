@@ -898,8 +898,26 @@ impl BlazeApp {
             }
         });
         ui.label(&self.profile_status);
-        ui.label("The engine must consult this policy before granting permissions. The standalone profile crate is not yet wired into Servo's permission delegates.");
-        ui.label(format!("History entries retained in memory: {}", self.profile.history.len()));
+        ui.label("The engine must consult this policy before granting permissions. The profile policy is not yet wired into Servo's permission delegate.");
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Recent history").strong());
+            if ui.button("Clear history").clicked() {
+                self.profile.clear_history();
+                self.profile_status = "Browsing history cleared from the in-memory profile. Save the encrypted profile to persist the change.".into();
+            }
+        });
+        let recent_history = self.profile.history.iter().take(12).cloned().collect::<Vec<_>>();
+        for entry in recent_history {
+            ui.horizontal(|ui| {
+                ui.label(&entry.title);
+                ui.small(&entry.url);
+            });
+        }
+        ui.label(format!(
+            "{} history entries retained in memory.",
+            self.profile.history.len()
+        ));
     }
 
     fn save_profile(&mut self) {
