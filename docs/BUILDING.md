@@ -21,56 +21,53 @@ cargo test --workspace
 cargo run -p blaze-desktop
 ```
 
-The shell includes the workspace panels, profile and Notes vault UI, CSV
-spreadsheet editor, formula bar, and Messenger UI. Its browser address bar
-validates addresses and manages local tab metadata; the shell does not itself
-embed the web renderer yet.
+The shell includes workspace panels, profile and Notes vault UI, CSV spreadsheet editor, formula bar, and Messenger UI. Its browser address bar manages tab metadata and can launch the bundled Servo mode.
 
-## Servo browser host
+## Unified Blaze binary with Servo mode
 
-The Servo dependency is opt-in so that users who only need the workspace shell
-do not compile the full browser engine. Build the Blaze executable:
+The Servo 0.7 browser engine is an optional feature linked into the same
+`blaze` executable as the eframe/egui workspace shell. Build it with:
 
 ```sh
-cargo build --release -p blaze-desktop --features servo-host --bins
+cargo build --release -p blaze-desktop --features servo-host --bin blaze
 ```
 
-The resulting executables are:
-
-- `target/release/blaze` — main native workspace.
-- `target/release/blaze-servo` — standalone Servo browser window.
-
-Launch the browser host directly:
+Launch the shell:
 
 ```sh
-./target/release/blaze-servo https://example.com
+./target/release/blaze
 ```
 
-Or launch the main shell and use the **Open in Servo** button after building
-with the `servo-host` feature. Keep both executables in the same directory so
-the shell can locate `blaze-servo`. The shell passes its tab URL/title list,
-pinned flags, active index, and site-permission snapshot to the Servo process.
-This restores the selected page and other tab URLs but not live JavaScript or
-renderer state.
+Launch the browser mode directly:
 
-### Servo keyboard shortcuts
+```sh
+./target/release/blaze --servo-host https://example.com
+```
+
+The shell's **Open in Servo** action launches the browser mode from that same
+executable. It opens a second native window with Servo's own OpenGL context;
+the page is not yet embedded inside the shell's egui/wgpu tab area.
+
+### Browser shortcuts
 
 | Shortcut | Action |
 |---|---|
-| Ctrl+L | Edit the current address in the window title bar; Enter navigates, Esc cancels |
+| Ctrl+L | Edit address in the window title bar; Enter navigates, Esc cancels |
 | Ctrl+R | Reload current page |
 | Ctrl+T | Open a new blank tab |
-| Ctrl+W | Close the current tab (pinned tabs are protected; last tab becomes blank) |
+| Ctrl+W | Close current tab (pinned tabs are protected) |
 | Ctrl+P | Toggle the current tab's pinned state |
 | Ctrl+Tab | Next tab |
 | Ctrl+Shift+Tab | Previous tab |
 | Alt+Left | Back |
 | Alt+Right | Forward |
 
-The current Servo host keeps tab URL/title metadata and reuses one active
-WebView. Switching tabs reloads the selected URL; it does not preserve each
-tab's scroll position, JavaScript heap, renderer process, or live media state.
-This is intentionally lighter than keeping every hidden renderer active.
+The Servo browser mode maintains one WebView per live tab, with a warm-view
+budget of two for unpinned tabs. Older unpinned views are dropped and restored
+from URL/title metadata when revisited; their JavaScript heap, scroll position,
+media state and page history are not retained after eviction. Pinned views are
+exempt and can raise the active renderer count. Hidden retained tabs are not
+guaranteed to stop JavaScript timers, network requests or media playback.
 
 ## Linux media dependencies
 
@@ -108,10 +105,7 @@ still engineering tasks.
 
 Messenger's Network / NAT settings accept optional STUN/TURN URLs, TURN username and credential. Relay-only requires at least one TURN/TURNS URL. It hides host and server-reflexive candidates from the remote peer; it does not hide the connecting IP from the TURN provider. Credentials remain in process memory and are not written to the encrypted profile.
 
-The 50-tab / 50-simultaneous-4K / under-1-GiB request remains a stress target,
-not a guaranteed resource budget. The present Servo window uses one active
-WebView and lightweight URL metadata for tabs; profile tab restoration restores
-URLs and pin flags, not live renderer state.
+The 50-tab / 50-simultaneous-4K / under-1-GiB request remains a stress target, not a guaranteed resource budget. The Servo mode retains two warm views for unpinned tabs and restores evicted pages from URL metadata, not live renderer state.
 
 
 ## Build the example WASM app
