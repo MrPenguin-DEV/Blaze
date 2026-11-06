@@ -279,7 +279,7 @@ fn escape_markdown_cell(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('|', "\\|")
-        .replace('\r\n', "<br>")
+        .replace("\r\n", "<br>")
         .replace('\n', "<br>")
         .replace('\r', "<br>")
 }
