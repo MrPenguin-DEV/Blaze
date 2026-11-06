@@ -5,9 +5,28 @@ mod app;
 mod servo_host;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "servo-host")]
-    if std::env::args().nth(1).as_deref() == Some("--servo-host") {
-        return servo_host::run();
+    let mut args = std::env::args().skip(1);
+    let first = args.next();
+
+    match first.as_deref() {
+        Some("--version") | Some("-V") => {
+            println!("Blaze {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Some("--help") | Some("-h") => {
+            println!("Blaze {}\\n\\nUsage:\\n  blaze                 Open the workspace shell\\n  blaze --version       Print the beta version\\n  blaze --help          Show this help", env!("CARGO_PKG_VERSION"));
+            #[cfg(feature = "servo-host")]
+            println!("  blaze --servo-host [URL]  Open the bundled Servo browser mode");
+            #[cfg(not(feature = "servo-host"))]
+            println!("\\nBuild with --features servo-host to enable the browser mode.");
+            return Ok(());
+        }
+        #[cfg(feature = "servo-host")]
+        Some("--servo-host") => return servo_host::run(),
+        Some(unknown) => {
+            return Err(format!("Unknown option: {unknown}. Use --help for usage.").into());
+        }
+        None => {}
     }
 
     let options = eframe::NativeOptions {
