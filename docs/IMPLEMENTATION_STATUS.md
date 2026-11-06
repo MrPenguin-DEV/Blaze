@@ -8,7 +8,7 @@ This document distinguishes code that exists from integrations that are still mi
 |---|---|---|
 | 1. Rust workspace/core | Implemented | Multi-crate Rust workspace, shared types, memory policy, tab snapshots. |
 | 2. Native shell | Prototype implemented | Native eframe/egui desktop shell rendered through wgpu; no Electron or embedded system WebView. |
-| 3. Browser boundary | Standalone host prototype | A separate optional Servo 0.8 host has a WebView, event-loop waker, frame presentation, URL filtering, mouse/keyboard/wheel input, address editing and history shortcuts. It is a separate native window, not integrated into the main wgpu tab compositor; downloads and profile-backed permission delegates remain pending. |
+| 3. Browser boundary | Standalone host prototype | A separate optional Servo 0.8 host has a WebView, event-loop waker, frame presentation, URL filtering, mouse/keyboard/wheel input, address editing, back/forward history, and Ctrl+T/Ctrl+W/Ctrl+Tab tab shortcuts. It keeps tab URL/title metadata and reuses one active WebView; switching reloads the URL. It is not integrated into the main wgpu tab compositor; downloads and profile-backed permission delegates remain pending. |
 | 4. GPU/media | Partial | wgpu accelerates the native UI. The optional Servo build enables its GStreamer media backend; actual playback and hardware decode depend on native GStreamer plugins, host drivers and the Servo media pipeline, and have not been verified here. |
 | 5. Tabs/memory | Policy implemented | Background suspension decisions, pinning and dirty-tab protection, configurable live-tab ceiling. Actual renderer reclamation and RAM telemetry require the engine. |
 | 6. Privacy/storage | Prototype implemented | Argon2/ChaCha20-Poly1305 encrypted Notes and browser profile, schema-v2 migration, bookmarks, origin-scoped permissions, capped history, and last-session tab/pin restore. A SHA-256 deduplicating quota cache exists. OS keychain, engine permission enforcement, encrypted cookie/cache integration, private-mode teardown, and formal review remain. |
@@ -36,7 +36,7 @@ CI is configured to run formatting, compilation, and tests on each push and pull
 
 ### Real browser engine
 
-The optional standalone Servo host now creates a WebView, drives the Servo event loop, presents frames, forwards pointer/keyboard/wheel input, supports an address-entry shortcut and browser history shortcuts, and rejects non-HTTP(S) navigation. Remaining browser work is the in-process main-shell compositor bridge, tab-per-WebView/process ownership, downloads, and passing the encrypted profile's permission policy into Servo delegates. Validate builds and real page compatibility on supported operating systems.
+The optional standalone Servo host now creates a WebView, drives the Servo event loop, presents frames, forwards pointer/keyboard/wheel input, supports address editing, browser history, and lightweight URL tabs. It keeps only one WebView active and reloads the saved URL when switching tabs. Remaining browser work is the in-process main-shell compositor bridge, per-tab renderer isolation/state restoration, downloads, and passing the encrypted profile's permission policy into Servo delegates. Validate builds and real page compatibility on supported operating systems.
 
 ### Hardware video and performance
 
