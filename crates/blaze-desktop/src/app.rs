@@ -59,6 +59,8 @@ pub struct BlazeApp {
     sheet_csv: String,
     presentation_title: String,
     slide_outline: String,
+    office_import_path: String,
+    office_export_path: String,
     notes: String,
     message_to: String,
     message_body: String,
@@ -90,6 +92,8 @@ impl Default for BlazeApp {
             sheet_title: "Untitled spreadsheet".into(),
             sheet_csv: "Name,Value\nBlaze,1\n".into(),
             presentation_title: "Untitled presentation".into(),
+            office_import_path: "document.docx".into(),
+            office_export_path: "document.docx".into(),
             slide_outline: "# Slide 1 — Welcome\n\nBlaze is a Rust-first workspace.\n\n---\n\n# Slide 2 — Roadmap\n\nAdd your next slide here.\n".into(),
             notes: String::new(),
             message_to: String::new(),
@@ -317,10 +321,39 @@ impl BlazeApp {
 
     fn documents_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Documents");
-        ui.label("Markdown-first editor. DOCX import/export is not implemented in this prototype.");
+        ui.label("Markdown editor with DOCX import/export through the Office bridge.");
         ui.horizontal(|ui| {
             ui.label("Title");
             ui.text_edit_singleline(&mut self.document_title);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Import path");
+            ui.text_edit_singleline(&mut self.office_import_path);
+            if ui.button("Import Office").clicked() {
+                let path = self.office_import_path.clone();
+                match blaze_office::import_office(&path) {
+                    Ok(imported) => {
+                        self.document_markdown = imported.markdown;
+                        self.toast = format!("Imported {:?}; {} parser warnings.", imported.format, imported.damage_count);
+                    }
+                    Err(error) => self.toast = format!("Office import failed: {error}"),
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Export path");
+            ui.text_edit_singleline(&mut self.office_export_path);
+            if ui.button("Export DOCX").clicked() {
+                let path = self.office_export_path.clone();
+                match blaze_office::export_markdown(
+                    &self.document_markdown,
+                    blaze_office::OfficeOutputFormat::Docx,
+                    &path,
+                ) {
+                    Ok(()) => self.toast = format!("Exported DOCX to {path}"),
+                    Err(error) => self.toast = format!("DOCX export failed: {error}"),
+                }
+            }
             if ui.button("Export Markdown").clicked() {
                 let name = format!("{}.md", safe_stem(&self.document_title));
                 let body = self.document_markdown.clone();
@@ -336,10 +369,39 @@ impl BlazeApp {
 
     fn sheets_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Sheets");
-        ui.label("CSV editor/export foundation. Formula calculation, XLSX interoperability, charts, and large-grid virtualization are pending.");
+        ui.label("CSV editor plus XLSX import/export. Formula calculation, charts, and large-grid virtualization remain pending.");
         ui.horizontal(|ui| {
             ui.label("Title");
             ui.text_edit_singleline(&mut self.sheet_title);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Import path");
+            ui.text_edit_singleline(&mut self.office_import_path);
+            if ui.button("Import XLSX / Office").clicked() {
+                let path = self.office_import_path.clone();
+                match blaze_office::import_office(&path) {
+                    Ok(imported) => {
+                        self.sheet_csv = imported.markdown;
+                        self.toast = format!("Imported {:?} as a sheet preview; {} parser warnings.", imported.format, imported.damage_count);
+                    }
+                    Err(error) => self.toast = format!("Spreadsheet import failed: {error}"),
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Export path");
+            ui.text_edit_singleline(&mut self.office_export_path);
+            if ui.button("Export XLSX").clicked() {
+                let path = self.office_export_path.clone();
+                match blaze_office::export_markdown(
+                    &self.sheet_csv,
+                    blaze_office::OfficeOutputFormat::Xlsx,
+                    &path,
+                ) {
+                    Ok(()) => self.toast = format!("Exported XLSX to {path}"),
+                    Err(error) => self.toast = format!("XLSX export failed: {error}"),
+                }
+            }
             if ui.button("Export CSV").clicked() {
                 let name = format!("{}.csv", safe_stem(&self.sheet_title));
                 let body = self.sheet_csv.clone();
@@ -356,10 +418,39 @@ impl BlazeApp {
 
     fn slides_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Presentations");
-        ui.label("Slide-outline editor. PPTX layout, media, and export are pending.");
+        ui.label("Slide-outline editor with basic PPTX import/export. Full slide layout, themes, and media editing are still pending.");
         ui.horizontal(|ui| {
             ui.label("Title");
             ui.text_edit_singleline(&mut self.presentation_title);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Import path");
+            ui.text_edit_singleline(&mut self.office_import_path);
+            if ui.button("Import PPTX / Office").clicked() {
+                let path = self.office_import_path.clone();
+                match blaze_office::import_office(&path) {
+                    Ok(imported) => {
+                        self.slide_outline = imported.markdown;
+                        self.toast = format!("Imported {:?}; {} parser warnings.", imported.format, imported.damage_count);
+                    }
+                    Err(error) => self.toast = format!("Presentation import failed: {error}"),
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Export path");
+            ui.text_edit_singleline(&mut self.office_export_path);
+            if ui.button("Export PPTX").clicked() {
+                let path = self.office_export_path.clone();
+                match blaze_office::export_markdown(
+                    &self.slide_outline,
+                    blaze_office::OfficeOutputFormat::Pptx,
+                    &path,
+                ) {
+                    Ok(()) => self.toast = format!("Exported PPTX to {path}"),
+                    Err(error) => self.toast = format!("PPTX export failed: {error}"),
+                }
+            }
             if ui.button("Export outline").clicked() {
                 let name = format!("{}.md", safe_stem(&self.presentation_title));
                 let body = self.slide_outline.clone();
