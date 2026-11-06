@@ -75,6 +75,10 @@ pub struct BlazeApp {
     message_log: String,
     signal_input: String,
     signal_output: String,
+    trusted_peer_fingerprint: String,
+    remote_fingerprint: String,
+    local_fingerprint: String,
+    identity_verified: bool,
     comms_status: String,
     comms_runtime: tokio::runtime::Runtime,
     peer_session: Option<blaze_comms::PeerSession>,
@@ -122,7 +126,11 @@ impl Default for BlazeApp {
             message_log: String::new(),
             signal_input: String::new(),
             signal_output: String::new(),
-            comms_status: "No peer connection. Create a connection, exchange signaling messages with a trusted contact, then wait for the data channel.".into(),
+            trusted_peer_fingerprint: String::new(),
+            remote_fingerprint: String::new(),
+            local_fingerprint: String::new(),
+            identity_verified: false,
+            comms_status: "No peer connection. Create a connection, exchange signaling messages with a trusted contact, then verify the remote fingerprint.".into(),
             comms_runtime: tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
@@ -583,6 +591,18 @@ impl BlazeApp {
         self.poll_peer_queues();
         ui.label("Peer-to-peer WebRTC text channel with manual copy/paste signaling. No central signaling server is configured.");
         ui.label(egui::RichText::new(blaze_comms::IDENTITY_WARNING).color(egui::Color32::YELLOW));
+        ui.label("Your SHA-256 DTLS fingerprint (share through a separate trusted channel):");
+        ui.label(if self.local_fingerprint.is_empty() { "Not generated yet.".to_owned() } else { self.local_fingerprint.clone() });
+        ui.label("Expected peer SHA-256 fingerprint (confirm it independently with that person):");
+        ui.text_edit_singleline(&mut self.trusted_peer_fingerprint);
+        ui.label(if self.identity_verified {
+            "Peer fingerprint matched the value you entered.".to_owned()
+        } else {
+            "Peer identity is not verified. Sending is disabled.".to_owned()
+        });
+        if !self.remote_fingerprint.is_empty() {
+            ui.label(format!("Fingerprint in the pasted remote SDP: {}", self.remote_fingerprint));
+        }
         ui.horizontal(|ui| {
             if self.peer_session.is_none() {
                 if ui.button("Create peer connection").clicked() {
@@ -591,7 +611,10 @@ impl BlazeApp {
                     )) {
                         Ok(session) => {
                             self.peer_session = Some(session);
-                            self.comms_status = "Peer connection created. Create an offer, then exchange the JSON signaling messages through a separate trusted channel.".into();
+                            self.identity_verified = false;
+                            self.local_fingerprint.clear();
+                            self.remote_fingerprint.clear();
+                            self.comms_status = "Peer connection created. Create an offer, then exchange signaling JSON and verify the SHA-256 fingerprints out of band.".into();
                         }
                         Err(error) => self.comms_status = format!("Could not create peer connection: {error}"),
                     }
@@ -604,6 +627,9 @@ impl BlazeApp {
                             Err(error) => self.comms_status = format!("Close reported: {error}"),
                         }
                     }
+                    self.identity_verified = false;
+                    self.local_fingerprint.clear();
+                    self.remote_fingerprint.clear();
                 }
                 if ui.button("Create offer").clicked() {
                     let result = self.peer_session.as_ref().map(|session| {
@@ -611,8 +637,10 @@ impl BlazeApp {
                     });
                     match result {
                         Some(Ok(description)) => {
+                            self.local_fingerprint = blaze_comms::sha256_dtls_fingerprint(&description.sdp)
+                                .unwrap_or_default();
                             self.append_signaling_output(blaze_comms::SignalingMessage::Description(description));
-                            self.comms_status = "Offer created. Send the JSON line to the other peer; return their answer and ICE candidates here.".into();
+                            self.comms_status = "Offer created. Send the JSON to your contact over a trusted channel, and share your local fingerprint for verification.".into();
                         }
                         Some(Err(error)) => self.comms_status = format!("Offer creation failed: {error}"),
                         None => {}
@@ -665,7 +693,7 @@ impl BlazeApp {
                     .hint_text("Write a message...")
                     .desired_width(f32::INFINITY),
             );
-            if ui.add_enabled(self.peer_session.is_some() && !self.message_body.trim().is_empty(), egui::Button::new("Send")).clicked() {
+            if ui.add_enabled(self.peer_session.is_some() && self.identity_verified && !self.message_body.trim().is_empty(), egui::Button::new("Send")).clicked() {
                 let message = std::mem::take(&mut self.message_body);
                 let result = self.peer_session.as_ref().map(|session| {
                     self.comms_runtime.block_on(session.send_text(&message))
