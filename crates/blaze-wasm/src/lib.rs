@@ -1,11 +1,11 @@
-mod app;
-pub use app::{WasmAppError, WasmAppFrame, WasmAppNode, WasmAppRuntime};
-
 //! Minimal WebAssembly extension executor for untrusted, compute-only modules.
 //!
 //! No filesystem, network, clipboard, browser, or OS imports are linked by
 //! default. Extensions receive no host capabilities unless a reviewed host API
 //! is deliberately added later. Fuel and linear-memory limits bound guest work.
+
+mod app;
+pub use app::{WasmAppError, WasmAppFrame, WasmAppNode, WasmAppRuntime};
 
 use thiserror::Error;
 use wasmi::{Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
