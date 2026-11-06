@@ -8,6 +8,7 @@ description = "DOCX, XLSX and PPTX import/export helpers for Blaze"
 
 [dependencies]
 office_oxide.workspace = true
+spreadsheet-formula = "0.4.2"
 thiserror.workspace = true
 
 [lints]
