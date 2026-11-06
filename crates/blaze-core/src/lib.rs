@@ -7,6 +7,7 @@
 pub mod memory;
 pub mod session;
 pub mod storage;
+pub mod tabs;
 
 /// Stable identifier for a tab within a browser session.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
