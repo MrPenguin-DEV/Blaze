@@ -11,7 +11,7 @@ This document distinguishes code that exists from integrations that are still mi
 | 3. Browser boundary | Partial | Safe URL normalization and BrowserEngine trait. Actual Servo page rendering, input, downloads, and permissions are not connected. |
 | 4. GPU/media | Partial | wgpu accelerates the native UI. Web-content compositing and hardware video decode are not connected. |
 | 5. Tabs/memory | Policy implemented | Background suspension decisions, pinning and dirty-tab protection, configurable live-tab ceiling. Actual renderer reclamation and RAM telemetry require the engine. |
-| 6. Privacy/storage | Primitive implemented | Argon2-derived key and ChaCha20-Poly1305 encrypted file envelope; notes can be encrypted in the desktop shell. OS keychain, encrypted profile DB, private-mode teardown, and formal review remain. |
+| 6. Privacy/storage | Primitive implemented | Argon2-derived key and ChaCha20-Poly1305 encrypted file envelope, Notes vault UI, and standalone SHA-256 disk cache with deduplication/LRU quota. OS keychain, encrypted profile DB, cache-to-engine integration, private-mode teardown, and formal review remain. |
 | 7. Workspace/WASM apps | Foundations implemented | Code editor buffer, Markdown document editor/export, CSV editor/export, presentation outline/export, notes, message draft, call UI, Wasmi compute-only runtime with fuel/memory limits. Full app services and office file interoperability remain. |
 
 ## Run the native app
@@ -48,4 +48,4 @@ The initial editors save common portable text formats. Add tested DOCX, XLSX, an
 
 ### Security
 
-The vault primitive has authentication and tamper-detection tests, but it is not a complete password manager or encrypted browser profile. Add OS keychain support, secure file permissions, key rotation and recovery strategy, profile isolation, a content security policy, and independent security review. The Wasm runner has no host imports by default and applies fuel and linear-memory limits; it still needs process isolation and explicit, audited capability APIs before third-party extensions are enabled.
+The vault primitive has authentication and tamper-detection tests, but it is not a complete password manager or encrypted browser profile. Add OS keychain support, secure file permissions, key rotation and recovery strategy, profile isolation, a content security policy, and independent security review. The Wasm runner has no host imports by default and applies fuel and linear-memory limits; it still needs process isolation and explicit, audited capability APIs before third-party extensions are enabled. The content cache is a separate module and still needs concurrency coordination and browser-request integration.
