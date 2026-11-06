@@ -2,10 +2,26 @@ name: Rust CI
 
 on:
   push:
+    paths-ignore:
+      - "README.md"
+      - "CHANGELOG.md"
+      - "VERSION"
+      - "LICENSE-*"
+      - "docs/**"
   pull_request:
+    paths-ignore:
+      - "README.md"
+      - "CHANGELOG.md"
+      - "VERSION"
+      - "LICENSE-*"
+      - "docs/**"
 
 permissions:
   contents: read
+
+concurrency:
+  group: blaze-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
