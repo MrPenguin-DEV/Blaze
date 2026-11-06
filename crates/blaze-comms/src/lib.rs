@@ -199,9 +199,65 @@ impl PeerSession {
     }
 }
 
+/// Normalizes a SHA-256 DTLS certificate fingerprint to 64 lowercase hex
+/// characters, accepting the colon-separated form used by SDP.
+pub fn normalize_sha256_fingerprint(value: &str) -> Option<String> {
+    let normalized: String = value
+        .chars()
+        .filter(|character| *character != ':' && !character.is_ascii_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect();
+
+    if normalized.len() != 64 || !normalized.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(normalized)
+}
+
+/// Extracts the SHA-256 DTLS fingerprint from a session description.
+/// If multiple media sections advertise fingerprints, they must agree.
+pub fn sha256_dtls_fingerprint(sdp: &str) -> Option<String> {
+    let mut fingerprints = Vec::new();
+
+    for line in sdp.lines() {
+        let Some(attribute) = line.trim().strip_prefix("a=fingerprint:") else {
+            continue;
+        };
+        let mut parts = attribute.split_whitespace();
+        let algorithm = parts.next()?;
+        let value = parts.next()?;
+
+        if !algorithm.eq_ignore_ascii_case("sha-256") {
+            continue;
+        }
+        let fingerprint = normalize_sha256_fingerprint(value)?;
+        if !fingerprints.contains(&fingerprint) {
+            fingerprints.push(fingerprint);
+        }
+    }
+
+    if fingerprints.len() == 1 {
+        fingerprints.pop()
+    } else {
+        None
+    }
+}
+
+/// Verifies the SHA-256 fingerprint in an SDP description against a value
+/// confirmed independently with the intended contact.
+pub fn verify_sha256_dtls_fingerprint(sdp: &str, trusted: &str) -> bool {
+    match (
+        sha256_dtls_fingerprint(sdp),
+        normalize_sha256_fingerprint(trusted),
+    ) {
+        (Some(observed), Some(expected)) => observed == expected,
+        _ => false,
+    }
+}
+
 /// A transport-security warning suitable for the Messenger UI.
 pub const IDENTITY_WARNING: &str =
-    "WebRTC encrypts the transport, but Blaze has not yet authenticated peer identity or pinned DTLS certificate fingerprints. Do not treat the session as verified end-to-end encrypted messaging.";
+    "WebRTC encrypts the transport, but identity is not automatic. Compare the SHA-256 DTLS fingerprint with your contact over a separate trusted channel before sending sensitive messages.";
 
 #[cfg(test)]
 mod tests {
@@ -222,6 +278,27 @@ mod tests {
             }
             SignalingMessage::Candidate(_) => panic!("expected a description payload"),
         }
+    }
+
+    #[test]
+    fn normalizes_and_verifies_sha256_dtls_fingerprint() {
+        let fingerprint = "00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF";
+        let sdp = format!(
+            "v=0\\r\\na=fingerprint:sha-256 {fingerprint}\\r\\n"
+        );
+        let canonical = normalize_sha256_fingerprint(fingerprint).unwrap();
+        assert_eq!(canonical.len(), 64);
+        assert!(verify_sha256_dtls_fingerprint(&sdp, &canonical));
+        assert!(!verify_sha256_dtls_fingerprint(&sdp, "00"));
+    }
+
+    #[test]
+    fn refuses_missing_or_conflicting_fingerprints() {
+        assert!(sha256_dtls_fingerprint("v=0\\r\\ns=-\\r\\n").is_none());
+        let first = "00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF";
+        let second = "11:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF";
+        let sdp = format!("a=fingerprint:sha-256 {first}\\na=fingerprint:sha-256 {second}\\n");
+        assert!(sha256_dtls_fingerprint(&sdp).is_none());
     }
 
     #[test]
