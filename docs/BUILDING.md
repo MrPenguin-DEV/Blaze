@@ -48,7 +48,10 @@ Launch the browser host directly:
 
 Or launch the main shell and use the **Open in Servo** button after building
 with the `servo-host` feature. Keep both executables in the same directory so
-the shell can locate `blaze-servo`.
+the shell can locate `blaze-servo`. The shell passes its tab URL/title list,
+pinned flags, active index, and site-permission snapshot to the Servo process.
+This restores the selected page and other tab URLs but not live JavaScript or
+renderer state.
 
 ### Servo keyboard shortcuts
 
@@ -57,7 +60,8 @@ the shell can locate `blaze-servo`.
 | Ctrl+L | Edit the current address in the window title bar; Enter navigates, Esc cancels |
 | Ctrl+R | Reload current page |
 | Ctrl+T | Open a new blank tab |
-| Ctrl+W | Close the current tab (last tab becomes blank) |
+| Ctrl+W | Close the current tab (pinned tabs are protected; last tab becomes blank) |
+| Ctrl+P | Toggle the current tab's pinned state |
 | Ctrl+Tab | Next tab |
 | Ctrl+Shift+Tab | Previous tab |
 | Alt+Left | Back |
