@@ -68,6 +68,12 @@ pub struct BlazeApp {
     notes: String,
     message_to: String,
     message_body: String,
+    message_log: String,
+    signal_input: String,
+    signal_output: String,
+    comms_status: String,
+    comms_runtime: tokio::runtime::Runtime,
+    peer_session: Option<blaze_comms::PeerSession>,
     call_status: String,
     vault_password: String,
     vault_status: String,
@@ -105,6 +111,15 @@ impl Default for BlazeApp {
             notes: String::new(),
             message_to: String::new(),
             message_body: String::new(),
+            message_log: String::new(),
+            signal_input: String::new(),
+            signal_output: String::new(),
+            comms_status: "No peer connection. Create a connection, exchange signaling messages with a trusted contact, then wait for the data channel.".into(),
+            comms_runtime: tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Could not create Blaze communications runtime"),
+            peer_session: None,
             call_status: "Calling transport is not configured. No microphone or camera is accessed.".into(),
             vault_password: String::new(),
             vault_status: "Vault is locked. Enter a strong passphrase to load or save encrypted notes.".into(),
@@ -199,7 +214,7 @@ impl BlazeApp {
 
     fn browser_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Browser");
-        ui.label("Native shell with a strict URL boundary. Page rendering is awaiting the Servo adapter.");
+        ui.label("The main shell can launch the standalone Servo renderer when built with the optional servo-host feature.");
         ui.add_space(10.0);
 
         let mut navigate = false;
@@ -290,8 +305,8 @@ impl BlazeApp {
                 ui.add_space(18.0);
                 ui.label(egui::RichText::new(&self.browser_status).color(egui::Color32::YELLOW));
                 ui.add_space(12.0);
-                ui.label("The URL is validated locally, but this build does not yet render remote pages.");
-                ui.label("Next engine task: connect Servo's event loop, WebView, RenderingContext, and input events.");
+                ui.label("Remote pages render in the separate blaze-servo process when built with --features servo-host --bins.");
+                ui.label("The windows use separate rendering contexts; a direct in-process wgpu/Servo texture bridge is still missing.");
             });
         });
 
@@ -408,10 +423,10 @@ impl BlazeApp {
             ui.text_edit_singleline(&mut self.office_import_path);
             if ui.button("Import XLSX / Office").clicked() {
                 let path = self.office_import_path.clone();
-                match blaze_office::import_office(&path) {
+                match blaze_office::import_spreadsheet_as_csv(&path) {
                     Ok(imported) => {
-                        self.sheet_csv = imported.markdown;
-                        self.toast = format!("Imported {:?} as a sheet preview; {} parser warnings.", imported.format, imported.damage_count);
+                        self.sheet_csv = imported.csv;
+                        self.toast = format!("Imported {:?} as CSV; {} parser warnings.", imported.format, imported.damage_count);
                     }
                     Err(error) => self.toast = format!("Spreadsheet import failed: {error}"),
                 }
@@ -422,11 +437,7 @@ impl BlazeApp {
             ui.text_edit_singleline(&mut self.office_export_path);
             if ui.button("Export XLSX").clicked() {
                 let path = self.office_export_path.clone();
-                match blaze_office::export_markdown(
-                    &self.sheet_csv,
-                    blaze_office::OfficeOutputFormat::Xlsx,
-                    &path,
-                ) {
+                match blaze_office::export_csv(&self.sheet_csv, &path) {
                     Ok(()) => self.toast = format!("Exported XLSX to {path}"),
                     Err(error) => self.toast = format!("XLSX export failed: {error}"),
                 }
@@ -508,23 +519,179 @@ impl BlazeApp {
 
     fn messenger_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Messenger");
-        ui.label("Local message composer foundation. There is no account, relay, synchronization, or network transport yet.");
+        self.poll_peer_queues();
+        ui.label("Peer-to-peer WebRTC text channel with manual copy/paste signaling. No central signaling server is configured.");
+        ui.label(egui::RichText::new(blaze_comms::IDENTITY_WARNING).color(egui::Color32::YELLOW));
         ui.horizontal(|ui| {
-            ui.label("Recipient");
-            ui.text_edit_singleline(&mut self.message_to);
+            if self.peer_session.is_none() {
+                if ui.button("Create peer connection").clicked() {
+                    match self.comms_runtime.block_on(blaze_comms::PeerSession::new(
+                        blaze_comms::PeerConfig::default(),
+                    )) {
+                        Ok(session) => {
+                            self.peer_session = Some(session);
+                            self.comms_status = "Peer connection created. Create an offer, then exchange the JSON signaling messages through a separate trusted channel.".into();
+                        }
+                        Err(error) => self.comms_status = format!("Could not create peer connection: {error}"),
+                    }
+                }
+            } else {
+                if ui.button("Close connection").clicked() {
+                    if let Some(session) = self.peer_session.take() {
+                        match self.comms_runtime.block_on(session.close()) {
+                            Ok(()) => self.comms_status = "Peer connection closed.".into(),
+                            Err(error) => self.comms_status = format!("Close reported: {error}"),
+                        }
+                    }
+                }
+                if ui.button("Create offer").clicked() {
+                    let result = self.peer_session.as_ref().map(|session| {
+                        self.comms_runtime.block_on(session.create_offer())
+                    });
+                    match result {
+                        Some(Ok(description)) => {
+                            self.append_signaling_output(blaze_comms::SignalingMessage::Description(description));
+                            self.comms_status = "Offer created. Send the JSON line to the other peer; return their answer and ICE candidates here.".into();
+                        }
+                        Some(Err(error)) => self.comms_status = format!("Offer creation failed: {error}"),
+                        None => {}
+                    }
+                }
+            }
         });
+
+        ui.label("Recipient / contact label (local only)");
+        ui.text_edit_singleline(&mut self.message_to);
+        ui.label("Remote signaling messages — one JSON object per line (offer, answer, or ICE candidate)");
         ui.add(
-            egui::TextEdit::multiline(&mut self.message_body)
-                .hint_text("Write a message draft...")
+            egui::TextEdit::multiline(&mut self.signal_input)
+                .font(egui::TextStyle::Monospace)
                 .desired_width(f32::INFINITY)
-                .desired_rows(10),
+                .desired_rows(5),
         );
-        ui.label("Send is intentionally unavailable until identity, key verification, and a reviewed secure messaging protocol exist.");
+        if ui.add_enabled(self.peer_session.is_some() && !self.signal_input.trim().is_empty(), egui::Button::new("Apply remote signaling")).clicked() {
+            self.apply_remote_signaling();
+        }
+
+        ui.label("Local signaling output — send each JSON line to the other peer through a separate trusted channel");
+        ui.add(
+            egui::TextEdit::multiline(&mut self.signal_output)
+                .font(egui::TextStyle::Monospace)
+                .desired_width(f32::INFINITY)
+                .desired_rows(5),
+        );
+        ui.horizontal(|ui| {
+            if ui.button("Clear signaling output").clicked() {
+                self.signal_output.clear();
+            }
+            if ui.button("Poll incoming messages").clicked() {
+                self.poll_peer_queues();
+            }
+        });
+        ui.label(&self.comms_status);
+
+        ui.separator();
+        ui.label(egui::RichText::new("Conversation").strong());
+        ui.add(
+            egui::TextEdit::multiline(&mut self.message_log)
+                .desired_width(f32::INFINITY)
+                .desired_rows(7)
+                .interactive(false),
+        );
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.message_body)
+                    .hint_text("Write a message...")
+                    .desired_width(f32::INFINITY),
+            );
+            if ui.add_enabled(self.peer_session.is_some() && !self.message_body.trim().is_empty(), egui::Button::new("Send")).clicked() {
+                let message = std::mem::take(&mut self.message_body);
+                let result = self.peer_session.as_ref().map(|session| {
+                    self.comms_runtime.block_on(session.send_text(&message))
+                });
+                match result {
+                    Some(Ok(())) => {
+                        self.message_log.push_str(&format!("Me: {message}\n"));
+                        self.comms_status = "Message handed to the WebRTC data channel.".into();
+                    }
+                    Some(Err(error)) => {
+                        self.message_body = message;
+                        self.comms_status = format!("Message was not sent (the data channel may not be open): {error}");
+                    }
+                    None => {}
+                }
+            }
+        });
+        ui.label("Connection setup uses host candidates only by default. Peers on different networks may need an explicitly configured TURN server. Never send signaling JSON through an untrusted channel.");
+    }
+
+    fn append_signaling_output(&mut self, message: blaze_comms::SignalingMessage) {
+        match serde_json::to_string(&message) {
+            Ok(json) => {
+                self.signal_output.push_str(&json);
+                self.signal_output.push('\n');
+            }
+            Err(error) => self.comms_status = format!("Could not serialize signaling message: {error}"),
+        }
+    }
+
+    fn apply_remote_signaling(&mut self) {
+        let payload = std::mem::take(&mut self.signal_input);
+        let lines: Vec<String> = payload
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .collect();
+
+        for line in lines {
+            let message = match serde_json::from_str::<blaze_comms::SignalingMessage>(&line) {
+                Ok(message) => message,
+                Err(error) => {
+                    self.comms_status = format!("Invalid signaling JSON: {error}");
+                    continue;
+                }
+            };
+
+            let result = self.peer_session.as_ref().map(|session| {
+                self.comms_runtime.block_on(session.handle_signaling(message))
+            });
+            match result {
+                Some(Ok(Some(response))) => {
+                    self.append_signaling_output(response);
+                    self.comms_status = "Remote offer applied; local answer added to signaling output.".into();
+                }
+                Some(Ok(None)) => {
+                    self.comms_status = "Remote signaling message applied.".into();
+                }
+                Some(Err(error)) => {
+                    self.comms_status = format!("Could not apply remote signaling: {error}");
+                }
+                None => break,
+            }
+        }
+    }
+
+    fn poll_peer_queues(&mut self) {
+        let (outbound, incoming) = match self.peer_session.as_mut() {
+            Some(session) => (
+                session.drain_outbound_signaling(),
+                session.drain_incoming_text(),
+            ),
+            None => return,
+        };
+
+        for message in outbound {
+            self.append_signaling_output(message);
+        }
+        for message in incoming {
+            self.message_log.push_str(&format!("Peer: {message}\n"));
+        }
     }
 
     fn calling_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Calling");
-        ui.label("Calling UI foundation only. No camera/microphone permissions are requested in this build.");
+        ui.label("The WebRTC module currently supports data-channel messaging only. Audio/video calling still needs device capture, media tracks, authenticated signaling, and permission integration.");
         ui.add_space(8.0);
         ui.label(&self.call_status);
         ui.horizontal(|ui| {
