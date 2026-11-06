@@ -24,7 +24,7 @@ impl OfficeOutputFormat {
         }
     }
 
-    pub const fn extension(self) -> &'static str {
+    pub fn extension(self) -> &'static str {
         self.document_format().extension()
     }
 }
