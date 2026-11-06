@@ -227,7 +227,7 @@ impl AppState {
         self.ensure_active_webview();
     }
 
-    fn toggle_active_tab_pin(&self) {    fn toggle_active_tab_pin(&self) {
+    fn toggle_active_tab_pin(&self) {
         let mut tabs = self.tabs.borrow_mut();
         let index = self.active_tab.get().min(tabs.len().saturating_sub(1));
         let pinned = if let Some(tab) = tabs.get_mut(index) {
@@ -254,7 +254,7 @@ impl AppState {
         self.ensure_active_webview();
     }
 
-    fn webview_point(&self)    fn webview_point(&self) -> servo::WebViewPoint {
+    fn webview_point(&self) -> servo::WebViewPoint {
         let (x, y) = self.cursor_position.get();
         DevicePoint::new(x as f32, y as f32).into()
     }
@@ -427,7 +427,7 @@ impl servo::WebViewDelegate for AppState {
         }
     }
 
-    fn request_permission(&self, webview: WebView, request: PermissionRequest) {    fn request_permission(&self, webview: WebView, request: PermissionRequest) {
+    fn request_permission(&self, webview: WebView, request: PermissionRequest) {
         let Some(url) = webview.url() else {
             request.deny();
             return;
