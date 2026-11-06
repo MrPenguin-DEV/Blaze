@@ -257,7 +257,7 @@ impl BlazeApp {
             }
             #[cfg(feature = "servo-host")]
             if ui.button("Open in Servo").clicked() {
-                match launch_servo(&self.address) {
+                match launch_servo(&self.address, &self.profile) {
                     Ok(()) => self.browser_status = "Opened the current address in the separate Servo browser window.".into(),
                     Err(error) => self.browser_status = format!("Could not launch Servo: {error}"),
                 }
@@ -975,7 +975,7 @@ impl BlazeApp {
             }
         });
         ui.label(&self.profile_status);
-        ui.label("The engine must consult this policy before granting permissions. The profile policy is not yet wired into Servo's permission delegate.");
+        ui.label("When launched from this shell, the current origin's saved permission snapshot is passed to Servo. Only explicit Allow decisions for the matching top-level origin are granted; unsupported permission features remain denied.");
         ui.separator();
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Recent history").strong());
@@ -1143,11 +1143,16 @@ impl BlazeApp {
 }
 
 #[cfg(feature = "servo-host")]
-fn launch_servo(address: &str) -> Result<(), String> {
+fn launch_servo(address: &str, profile: &BrowserProfile) -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let servo_exe = current_exe.with_file_name(format!("blaze-servo{}", std::env::consts::EXE_SUFFIX));
+    // Only copy permission preferences into the child process. Never pass the
+    // profile passphrase, history, bookmarks, or encrypted profile contents.
+    let permission_snapshot = serde_json::to_string(&profile.permissions)
+        .map_err(|error| format!("Could not serialize site permissions: {error}"))?;
     std::process::Command::new(&servo_exe)
         .arg(address)
+        .env("BLAZE_SITE_PERMISSIONS", permission_snapshot)
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("{} ({error}). Build with --features servo-host --bins.", servo_exe.display()))
