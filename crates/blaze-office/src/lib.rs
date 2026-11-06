@@ -5,6 +5,7 @@
 //! explicit CSV <-> Markdown-table conversion so rows and cells are preserved.
 
 use office_oxide::{create::create_from_markdown, format::DocumentFormat, Document};
+use spreadsheet_formula::{CellRef, Evaluator, Sheet, Value};
 use std::path::Path;
 use thiserror::Error;
 
@@ -105,6 +106,8 @@ pub enum OfficeBridgeError {
     InvalidCsv(String),
     #[error("the imported document did not contain a Markdown table")]
     NoSpreadsheetTable,
+    #[error("formula could not be evaluated: {0}")]
+    Formula(String),
     #[error("Office conversion failed: {0}")]
     Office(#[from] office_oxide::OfficeError),
 }
@@ -182,6 +185,59 @@ pub fn parse_csv(input: &str) -> Result<Vec<Vec<String>>, OfficeBridgeError> {
     }
 
     Ok(rows)
+}
+
+/// A single-sheet, read-only adapter over parsed CSV values.
+#[derive(Debug)]
+struct CsvFormulaSheet {
+    rows: Vec<Vec<String>>,
+}
+
+impl Sheet for CsvFormulaSheet {
+    fn value(&self, cell: CellRef) -> Value {
+        self.rows
+            .get(cell.row as usize)
+            .and_then(|row| row.get(cell.column as usize))
+            .map(|value| {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    Value::Empty
+                } else if trimmed.eq_ignore_ascii_case("true") {
+                    Value::Bool(true)
+                } else if trimmed.eq_ignore_ascii_case("false") {
+                    Value::Bool(false)
+                } else if let Ok(number) = trimmed.parse::<f64>() {
+                    Value::Number(number)
+                } else {
+                    Value::Text(value.clone())
+                }
+            })
+            .unwrap_or(Value::Empty)
+    }
+}
+
+/// Evaluates an Excel-style formula against a CSV grid.
+///
+/// Cell coordinates and ranges use ordinary A1 notation. The evaluator supports
+/// hundreds of spreadsheet functions and rejects unsupported functions,
+/// malformed expressions and circular references. Range materialization is
+/// capped to 10,000 cells to bound hostile formulas.
+pub fn evaluate_csv_formula(
+    csv: &str,
+    formula: &str,
+) -> Result<String, OfficeBridgeError> {
+    if formula.trim().is_empty() {
+        return Err(OfficeBridgeError::Formula("formula is empty".to_owned()));
+    }
+
+    let sheet = CsvFormulaSheet {
+        rows: parse_csv(csv)?,
+    };
+    let mut evaluator = Evaluator::new(&sheet).with_max_range_cells(10_000);
+    let value = evaluator
+        .eval(formula)
+        .map_err(|error| OfficeBridgeError::Formula(error.to_string()))?;
+    Ok(value.to_string())
 }
 
 /// Converts CSV rows to a GitHub-Flavored Markdown table.
@@ -347,6 +403,24 @@ mod tests {
             markdown_table_to_csv(&markdown).unwrap(),
             "Name,Note\r\nBlaze,\"fast, \"\"safe\"\"\"\r\nSecond,row"
         );
+    }
+
+    #[test]
+    fn evaluates_excel_formulas_against_csv_cells() {
+        assert_eq!(
+            evaluate_csv_formula("Item,Quantity\\nApples,4\\nPears,6", "=SUM(B2:B3)*2").unwrap(),
+            "20"
+        );
+        assert_eq!(
+            evaluate_csv_formula("Name,Score\\nAda,90\\nLin,95", "=AVERAGE(B2:B3)").unwrap(),
+            "92.5"
+        );
+    }
+
+    #[test]
+    fn formula_range_expansion_is_bounded() {
+        let error = evaluate_csv_formula("x\\n1", "=SUM(A1:XFD1048576)").unwrap_err();
+        assert!(matches!(error, OfficeBridgeError::Formula(_)));
     }
 
     #[test]
