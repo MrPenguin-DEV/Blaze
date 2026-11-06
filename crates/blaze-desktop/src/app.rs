@@ -10,7 +10,7 @@ use directories::ProjectDirs;
 use eframe::egui;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Section {
@@ -696,16 +696,24 @@ impl BlazeApp {
             if ui.add_enabled(self.peer_session.is_some() && self.identity_verified && !self.message_body.trim().is_empty(), egui::Button::new("Send")).clicked() {
                 let message = std::mem::take(&mut self.message_body);
                 let result = self.peer_session.as_ref().map(|session| {
-                    self.comms_runtime.block_on(session.send_text(&message))
+                    self.comms_runtime.block_on(async {
+                        tokio::time::timeout(Duration::from_secs(8), async {
+                            session.wait_until_writable().await?;
+                            session.send_text(&message).await
+                        })
+                        .await
+                        .map_err(|_| "timed out waiting for the peer data channel to open".to_owned())?
+                        .map_err(|error| error.to_string())
+                    })
                 });
                 match result {
                     Some(Ok(())) => {
                         self.message_log.push_str(&format!("Me: {message}\n"));
-                        self.comms_status = "Message handed to the WebRTC data channel.".into();
+                        self.comms_status = "Message sent over the verified WebRTC data channel.".into();
                     }
                     Some(Err(error)) => {
                         self.message_body = message;
-                        self.comms_status = format!("Message was not sent (the data channel may not be open): {error}");
+                        self.comms_status = format!("Message was not sent: {error}");
                     }
                     None => {}
                 }
