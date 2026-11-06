@@ -1,10 +1,10 @@
 //! Standalone Servo browser host.
 //!
-//! This is deliberately a separate executable while the main Blaze workspace
-//! uses egui/wgpu. Servo's current built-in window context is based on
-//! surfman/OpenGL; a later renderer bridge can combine it with the workspace UI.
+//! Servo currently owns a surfman/OpenGL rendering context. Blaze's egui shell
+//! uses wgpu, so this host is a separate native window until a zero-copy
+//! compositor bridge is implemented and validated.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::env;
 use std::error::Error;
 use std::rc::Rc;
@@ -14,16 +14,19 @@ use embedder_traits::EventLoopWaker;
 use euclid::Scale;
 use servo::{
     webview_delegate::{NavigationRequest, PermissionRequest},
-    InputEvent, RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta,
-    WheelEvent, WheelMode, WindowRenderingContext,
+    InputEvent, Key, KeyState, KeyboardEvent, MouseButton as ServoMouseButton,
+    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey, RenderingContext,
+    Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta, WheelEvent, WheelMode,
+    WindowRenderingContext,
 };
 use tracing::warn;
 use url::Url;
 use webrender_api::units::DevicePoint;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey as WinitNamedKey};
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::{Window, WindowId};
 
@@ -48,6 +51,133 @@ struct AppState {
     servo: Servo,
     rendering_context: Rc<WindowRenderingContext>,
     webview: RefCell<Option<WebView>>,
+    current_url: RefCell<String>,
+    cursor_position: Cell<(f64, f64)>,
+    modifiers: Cell<ModifiersState>,
+    address_editing: Cell<bool>,
+    address_buffer: RefCell<String>,
+}
+
+impl AppState {
+    fn webview_point(&self) -> servo::WebViewPoint {
+        let (x, y) = self.cursor_position.get();
+        DevicePoint::new(x as f32, y as f32).into()
+    }
+
+    fn begin_address_edit(&self) {
+        self.address_editing.set(true);
+        *self.address_buffer.borrow_mut() = self.current_url.borrow().clone();
+        self.window.set_title(&format!(
+            "Address: {}  —  Enter to navigate, Esc to cancel",
+            self.address_buffer.borrow()
+        ));
+    }
+
+    fn append_address_text(&self, text: &str) {
+        let mut address = self.address_buffer.borrow_mut();
+        address.push_str(text);
+        self.window.set_title(&format!(
+            "Address: {}  —  Enter to navigate, Esc to cancel",
+            *address
+        ));
+    }
+
+    fn replace_address_text(&self, address: String) {
+        *self.address_buffer.borrow_mut() = address;
+        self.window.set_title(&format!(
+            "Address: {}  —  Enter to navigate, Esc to cancel",
+            self.address_buffer.borrow()
+        ));
+    }
+
+    fn commit_address(&self) {
+        let requested = self.address_buffer.borrow().clone();
+        match normalize_address(&requested) {
+            Ok(url) => {
+                *self.current_url.borrow_mut() = url.to_string();
+                self.address_editing.set(false);
+                self.window.set_title(&format!("{} — Blaze", url));
+                if let Some(webview) = self.webview.borrow().as_ref() {
+                    webview.load(url);
+                }
+            }
+            Err(error) => {
+                self.window.set_title(&format!("Invalid address: {error} — Blaze"));
+            }
+        }
+    }
+
+    fn handle_shortcut(&self, event: &winit::event::KeyEvent) -> bool {
+        if event.state != ElementState::Pressed {
+            return false;
+        }
+
+        let modifiers = self.modifiers.get();
+        let control = modifiers.control_key() || modifiers.super_key();
+        let alt = modifiers.alt_key();
+
+        if self.address_editing.get() {
+            match &event.logical_key {
+                WinitKey::Named(WinitNamedKey::Enter) => self.commit_address(),
+                WinitKey::Named(WinitNamedKey::Escape) => {
+                    self.address_editing.set(false);
+                    self.window.set_title(&format!("{} — Blaze", self.current_url.borrow()));
+                }
+                WinitKey::Named(WinitNamedKey::Backspace) => {
+                    self.address_buffer.borrow_mut().pop();
+                    self.replace_address_text(self.address_buffer.borrow().clone());
+                }
+                WinitKey::Character(character)
+                    if !control && !alt && !character.chars().any(char::is_control) =>
+                {
+                    self.append_address_text(character);
+                }
+                _ => {}
+            }
+            return true;
+        }
+
+        let lower_character = match &event.logical_key {
+            WinitKey::Character(character) => character.to_ascii_lowercase(),
+            _ => String::new(),
+        };
+
+        if control && lower_character == "l" {
+            self.begin_address_edit();
+            return true;
+        }
+
+        if control && lower_character == "r" {
+            if let Some(webview) = self.webview.borrow().as_ref() {
+                webview.reload();
+            }
+            return true;
+        }
+
+        if alt {
+            match &event.logical_key {
+                WinitKey::Named(WinitNamedKey::ArrowLeft) => {
+                    if let Some(webview) = self.webview.borrow().as_ref() {
+                        if webview.can_go_back() {
+                            webview.go_back(1);
+                        }
+                    }
+                    return true;
+                }
+                WinitKey::Named(WinitNamedKey::ArrowRight) => {
+                    if let Some(webview) = self.webview.borrow().as_ref() {
+                        if webview.can_go_forward() {
+                            webview.go_forward(1);
+                        }
+                    }
+                    return true;
+                }
+                _ => {}
+            }
+        }
+
+        false
+    }
 }
 
 impl servo::WebViewDelegate for AppState {
@@ -56,23 +186,29 @@ impl servo::WebViewDelegate for AppState {
     }
 
     fn notify_page_title_changed(&self, _webview: WebView, title: Option<String>) {
-        let title = title.filter(|value| !value.trim().is_empty())
+        if self.address_editing.get() {
+            return;
+        }
+        let title = title
+            .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| "New Tab".to_owned());
         self.window.set_title(&format!("{title} — Blaze"));
     }
 
     fn notify_url_changed(&self, _webview: WebView, url: Url) {
-        self.window.set_title(&format!("{url} — Blaze"));
+        *self.current_url.borrow_mut() = url.to_string();
+        if !self.address_editing.get() {
+            self.window.set_title(&format!("{url} — Blaze"));
+        }
     }
 
     fn request_permission(&self, _webview: WebView, request: PermissionRequest) {
-        // Device access stays denied until a verified profile permission
-        // prompt is connected to this delegate.
+        // Default-deny until the profile policy is connected to this process.
         request.deny();
     }
 
     fn request_navigation(&self, _webview: WebView, request: NavigationRequest) {
-        // Do not allow file:, javascript:, data:, or custom schemes to navigate.
+        // Reject file:, javascript:, data:, and custom schemes.
         match request.url.scheme() {
             "http" | "https" => request.allow(),
             _ => request.deny(),
@@ -104,7 +240,7 @@ impl ApplicationHandler<WakerEvent> for App {
         let window = event_loop
             .create_window(
                 Window::default_attributes()
-                    .with_title("Blaze Browser Engine")
+                    .with_title("Blaze Browser")
                     .with_inner_size(PhysicalSize::new(1280, 820)),
             )
             .expect("Failed to create Blaze browser window");
@@ -130,6 +266,11 @@ impl ApplicationHandler<WakerEvent> for App {
             servo,
             rendering_context,
             webview: RefCell::new(None),
+            current_url: RefCell::new(initial_url.to_string()),
+            cursor_position: Cell::new((0.0, 0.0)),
+            modifiers: Cell::new(ModifiersState::empty()),
+            address_editing: Cell::new(false),
+            address_buffer: RefCell::new(String::new()),
         });
 
         let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
@@ -169,6 +310,57 @@ impl ApplicationHandler<WakerEvent> for App {
                     state.rendering_context.present();
                 }
             }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                state.modifiers.set(modifiers.state());
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                state.cursor_position.set((position.x, position.y));
+                if let Some(webview) = state.webview.borrow().as_ref() {
+                    webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(
+                        state.webview_point(),
+                    )));
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                // No page-side pointer event is synthesized when the native cursor exits.
+            }
+            WindowEvent::MouseInput { state: button_state, button, .. } => {
+                let servo_button = match button {
+                    MouseButton::Left => ServoMouseButton::Primary,
+                    MouseButton::Middle => ServoMouseButton::Auxiliary,
+                    MouseButton::Right => ServoMouseButton::Secondary,
+                    MouseButton::Back => ServoMouseButton::Back,
+                    MouseButton::Forward => ServoMouseButton::Forward,
+                    MouseButton::Other(value) => ServoMouseButton::Other(value),
+                };
+                let action = match button_state {
+                    ElementState::Pressed => MouseButtonAction::Down,
+                    ElementState::Released => MouseButtonAction::Up,
+                };
+                if let Some(webview) = state.webview.borrow().as_ref() {
+                    webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
+                        action,
+                        servo_button,
+                        state.webview_point(),
+                    )));
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if state.handle_shortcut(&event) {
+                    return;
+                }
+                if let Some(key) = to_servo_key(&event.logical_key) {
+                    let key_state = match event.state {
+                        ElementState::Pressed => KeyState::Down,
+                        ElementState::Released => KeyState::Up,
+                    };
+                    if let Some(webview) = state.webview.borrow().as_ref() {
+                        webview.notify_input_event(InputEvent::Keyboard(
+                            KeyboardEvent::from_state_and_key(key_state, key),
+                        ));
+                    }
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 if let Some(webview) = state.webview.borrow().as_ref() {
                     let (delta_x, delta_y, mode) = match delta {
@@ -191,7 +383,7 @@ impl ApplicationHandler<WakerEvent> for App {
                             z: 0.0,
                             mode,
                         },
-                        DevicePoint::default().into(),
+                        state.webview_point(),
                     )));
                 }
             }
@@ -213,6 +405,17 @@ impl ApplicationHandler<WakerEvent> for App {
             }
             _ => {}
         }
+    }
+}
+
+fn to_servo_key(key: &WinitKey) -> Option<Key> {
+    match key {
+        WinitKey::Character(value) => Some(Key::Character(value.to_string())),
+        WinitKey::Named(value) => {
+            let parsed = format!("{value:?}").parse::<NamedKey>().ok()?;
+            Some(Key::Named(parsed))
+        }
+        _ => None,
     }
 }
 
