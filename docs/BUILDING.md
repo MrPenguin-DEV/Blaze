@@ -112,3 +112,17 @@ The 50-tab / 50-simultaneous-4K / under-1-GiB request remains a stress target,
 not a guaranteed resource budget. The present Servo window uses one active
 WebView and lightweight URL metadata for tabs; profile tab restoration restores
 URLs and pin flags, not live renderer state.
+
+
+## Build the example WASM app
+
+Install the WebAssembly target and build the standalone sample:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo build --manifest-path examples/wasm-webapp/Cargo.toml --target wasm32-unknown-unknown --release
+```
+
+Open `target/wasm32-unknown-unknown/release/blaze_wasm_counter.wasm` in Code Studio by setting the module path and choosing **Run WASM web app**. The sample uses Blaze's bounded UI ABI; it is not an arbitrary HTML/JavaScript website. The native host draws its UI/canvas primitives through eframe/wgpu.
+
+For the optional Linux media backend, see [VIDEO_ACCELERATION.md](VIDEO_ACCELERATION.md) and run `scripts/probe-gstreamer-hwdecode.sh` after installing the relevant GStreamer plugins and GPU driver.
