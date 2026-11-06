@@ -2,12 +2,18 @@ name: Publish Blaze v0.0.1 Beta
 
 on:
   push:
+    branches:
+      - "beta/v0.0.1-beta"
     tags:
       - "v0.0.1-beta"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: blaze-beta-release
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
