@@ -99,6 +99,8 @@ pub enum ProfileError {
     Serialization(#[from] serde_json::Error),
     #[error("encrypted profile operation failed: {0}")]
     Vault(#[from] blaze_vault::VaultError),
+    #[error("profile schema version {0} is newer than this Blaze build")]
+    UnsupportedSchema(u32),
 }
 
 impl BrowserProfile {
@@ -206,12 +208,7 @@ impl BrowserProfile {
         let serialized = blaze_vault::read_encrypted(path, passphrase)?;
         let profile: Self = serde_json::from_slice(&serialized)?;
         if profile.schema_version > 1 {
-            return Err(ProfileError::Serialization(
-                serde_json::Error::io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "profile schema is newer than this Blaze build",
-                )),
-            ));
+            return Err(ProfileError::UnsupportedSchema(profile.schema_version));
         }
         Ok(profile)
     }
