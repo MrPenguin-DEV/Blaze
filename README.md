@@ -7,7 +7,7 @@ Current version: 0.2.0 · Native shell prototype · Linux-first development, cro
 ## What is implemented in this repository
 
 - A native Rust desktop shell rendered with egui/eframe and its wgpu graphics backend. It does not use Electron or an embedded system WebView.
-- An optional standalone Servo 0.7 page-renderer binary with mouse, keyboard and wheel input, HTTP(S)-only navigation, a GStreamer media backend, and per-tab WebViews. It retains at most two warm views (active plus one warm tab); older unpinned views are evicted and restored from URL metadata.
+- An optional standalone Servo 0.7 page-renderer binary with mouse, keyboard and wheel input, HTTP(S)-only navigation, a GStreamer media backend, and per-tab WebViews. It normally retains two warm views (active plus one unpinned tab); pinned background tabs are intentionally exempt from eviction and can raise that count. Older unpinned views are evicted and restored from URL metadata.
 - Browser address validation, safe-scheme filtering, and a strict browser-engine adapter contract.
 - Tab lifecycle policy with foreground/background/suspended states, pinning, unsaved-tab protection, and a configurable live-tab ceiling.
 - A local-file vault using Argon2-derived keys and ChaCha20-Poly1305 authenticated encryption.
@@ -55,7 +55,7 @@ The optional Servo feature is a large native build and requires GStreamer develo
 - `crates/blaze-cache` — bounded content-addressed disk cache.
 - `crates/blaze-vault` — authenticated encryption and encrypted file helpers.
 - `crates/blaze-workspace` — app data models and export helpers.
-- `crates/blaze-wasm` — compute-only, resource-limited Wasm runtime.
+- `crates/blaze-wasm` — compute-only and native-rendered UI-app Wasm runtime with resource limits.
 - `crates/blaze-desktop` — native desktop shell, app panels, and optional Servo browser host.
 - `docs/ARCHITECTURE.md` — system architecture.
 - `docs/BUILDING.md` — native and Servo build instructions.
