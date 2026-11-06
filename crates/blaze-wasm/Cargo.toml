@@ -9,6 +9,8 @@ description = "Capability-denying, resource-limited WebAssembly runtime for Blaz
 [dependencies]
 thiserror.workspace = true
 wasmi.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
