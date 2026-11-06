@@ -4,7 +4,7 @@ use blaze_core::{
     tabs::TabManager,
     TabId,
 };
-use blaze_profile::{BrowserProfile, PermissionDecision, PermissionKind};
+use blaze_profile::{BrowserProfile, PermissionDecision, PermissionKind, SessionTab};
 use blaze_vault::{read_encrypted, write_encrypted};
 use directories::ProjectDirs;
 use eframe::egui;
@@ -903,6 +903,30 @@ impl BlazeApp {
     }
 
     fn save_profile(&mut self) {
+        let session: Vec<SessionTab> = self
+            .tabs
+            .iter()
+            .map(|tab| {
+                let pinned = self
+                    .tab_policy
+                    .entries()
+                    .iter()
+                    .find(|entry| entry.id() == tab.id)
+                    .is_some_and(|entry| entry.snapshot.pinned);
+                SessionTab {
+                    title: tab.title.clone(),
+                    url: tab.url.clone(),
+                    pinned,
+                }
+            })
+            .collect();
+
+        if self.profile.settings.restore_last_session {
+            self.profile.set_last_session(session);
+        } else {
+            self.profile.set_last_session(Vec::new());
+        }
+
         let Some(path) = profile_file_path() else {
             self.profile_status = "Could not resolve the profile data directory.".into();
             return;
@@ -924,7 +948,49 @@ impl BlazeApp {
         match BrowserProfile::load_encrypted(&path, self.profile_passphrase.as_bytes()) {
             Ok(profile) => {
                 self.profile = profile;
-                self.profile_status = "Profile authenticated and unlocked.".into();
+                if self.profile.settings.restore_last_session {
+                    let saved_tabs = self.profile.last_session.clone();
+                    if !saved_tabs.is_empty() {
+                        self.tab_policy = TabManager::new(MemoryBudget::new(1024), 8);
+                        self.tabs.clear();
+
+                        for saved in saved_tabs {
+                            let Ok(url) = normalize_address(&saved.url) else {
+                                continue;
+                            };
+                            if !matches!(url.scheme(), "http" | "https") {
+                                continue;
+                            }
+                            let normalized = url.to_string();
+                            let id = self.tab_policy.open(normalized.clone());
+                            let _ = self.tab_policy.set_pinned(id, saved.pinned);
+                            self.tabs.push(BrowserTab {
+                                id,
+                                title: saved.title,
+                                url: normalized,
+                            });
+                        }
+
+                        if self.tabs.is_empty() {
+                            let id = self.tab_policy.open("about:blank");
+                            self.tabs.push(BrowserTab {
+                                id,
+                                title: "New tab".into(),
+                                url: "about:blank".into(),
+                            });
+                        }
+
+                        self.active_tab = self.tabs.len() - 1;
+                        let selected = self.tabs[self.active_tab].clone();
+                        self.address = selected.url;
+                        self.tab_policy.select(selected.id);
+                        let _ = self.tab_policy.enforce_live_limit();
+                    }
+                }
+                self.profile_status = format!(
+                    "Profile authenticated and unlocked. Restored {} tab entries; pages must be opened in the Servo host.",
+                    self.tabs.len()
+                );
                 self.toast = "Browser profile unlocked.".into();
             }
             Err(error) => self.profile_status = format!("Profile unlock failed: {error}"),
