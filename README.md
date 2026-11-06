@@ -2,37 +2,46 @@
 
 **Blaze** is a Rust-first, privacy-focused desktop browser and productivity workspace.
 
-> Status: early foundation. This repository is currently being bootstrapped; it is not yet a usable web browser.
+Current version: 0.2.0 · Native shell prototype · Linux-first development, cross-platform architecture
 
-## Product goals
+## What is implemented in this repository
 
-- Native desktop application; no Electron and no embedded system WebView as the long-term shell.
-- Rust application and systems core, with WebAssembly for sandboxed extensions and selected app workloads.
-- Standards-based web rendering through an embeddable browser engine (Servo is the leading candidate).
-- GPU-accelerated compositing and hardware video decode where supported by the platform.
-- Memory-aware tabs: discard/suspend background pages, restore from compact session snapshots, and enforce resource budgets.
-- Private local storage with encryption at rest, strict site permissions, isolated processes, and clear telemetry controls.
-- Integrated Code Studio, documents, spreadsheets, presentations, notes, messaging, and calling.
+- A native Rust desktop shell rendered with egui/eframe and the wgpu graphics backend. It does not use Electron or an embedded system WebView.
+- Browser navigation input validation and a strict engine-adapter boundary.
+- Tab lifecycle management with foreground/background/suspended states, pinning, dirty-tab protection, and a configurable live-tab ceiling.
+- A password-derived authenticated-encryption vault for local files, with authenticated decryption and tamper detection.
+- First-party workspace models and UI surfaces for Code Studio, documents, CSV spreadsheets, slide outlines, notes, messaging drafts, and calling.
+- A CI workflow for formatting, checking, and tests.
 
-## Reality about the memory target
+## Important implementation limits
 
-The aspiration is to keep ordinary browsing and sleeping tabs very lightweight. A hard guarantee of **under 1 GB with 50 tabs all actively playing 4K video** is not technically credible across arbitrary websites and hardware. Every active video can require decoder surfaces, GPU memory, network buffers, JavaScript heaps, and renderer resources. Blaze will measure and optimize this workload, use hardware decoding, and apply backpressure, but will not claim an impossible universal limit.
+Blaze is not yet a complete, daily-usable web browser. The native shell and browser controls are present, but a production page renderer is not yet connected. The engine adapter is the integration point for Servo. Servo embedding requires an event-loop waker, a Servo instance, a rendering context, WebView delegation, frame presentation, and forwarding input events. That is more than adding a dependency to Cargo.
 
-## Initial architecture
+The built-in productivity surfaces are first working shells and local data models, not yet full Microsoft Office replacements. Documents are Markdown-first, spreadsheets currently use CSV, and presentations are outline-based. Messenger and calling are UI/data-model foundations; no network service, identity system, realtime media stack, or end-to-end encrypted protocol is claimed.
 
-- `crates/blaze-core`: shared browser/session/resource-management primitives.
-- `docs/ARCHITECTURE.md`: engine, security, storage, and application architecture.
-- Planned next crates: native shell, engine adapter, renderer, storage, security, and workspace apps.
+## Memory and video target
+
+The ambition is to keep sleeping tabs and ordinary browsing lean. A universal guarantee of **less than 1 GB while 50 tabs all play 4K video simultaneously** is not credible: active decoders, GPU surfaces, JavaScript heaps, network buffers, and page processes consume resources independently. Blaze implements a scheduler that can suspend eligible background tabs, but the actual browser engine and hardware video pipeline still need measurement and optimization.
 
 ## Build
 
-Requires a recent stable Rust toolchain:
+Requires Rust 1.95 or newer and a native graphics toolchain.
 
 ```sh
+cargo fmt --all -- --check
 cargo check --workspace
 cargo test --workspace
+cargo run -p blaze-desktop
 ```
 
-## Current status
+On Linux, the windowing/graphics development packages required by winit/wgpu may need to be installed for your distribution. Hardware acceleration depends on the graphics driver and backend available on the host.
 
-This commit establishes the workspace and foundational contracts only. It does not yet render websites, play video, or ship the integrated apps. Those require staged engine integration, platform backends, and end-to-end testing.
+## Workspace layout
+
+- crates/blaze-core — tab/session/resource policy.
+- crates/blaze-browser — URL policy and browser-engine adapter contract.
+- crates/blaze-vault — authenticated encryption and encrypted file helpers.
+- crates/blaze-workspace — app data models and export helpers.
+- crates/blaze-desktop — native desktop shell and app panels.
+- docs/ARCHITECTURE.md — system architecture.
+- docs/IMPLEMENTATION_STATUS.md — completed work, known gaps, and next integration steps.
