@@ -90,7 +90,9 @@ struct AppState {
     window: Window,
     servo: Servo,
     rendering_context: Rc<WindowRenderingContext>,
-    webview: RefCell<Option<WebView>>,
+    webviews: RefCell<Vec<Option<WebView>>>,
+    last_used: RefCell<Vec<u64>>,
+    focus_tick: Cell<u64>,
     tabs: RefCell<Vec<ServoTab>>,
     active_tab: Cell<usize>,
     current_url: RefCell<String>,
@@ -114,59 +116,118 @@ impl AppState {
         self.window.set_title(&format!("{pin}{} ({}/{}) — Blaze", tab.title, index + 1, tabs.len()));
     }
 
-    fn new_tab(&self) {
-        let url = Url::parse("about:blank").expect("about:blank is a valid URL");
-        self.tabs.borrow_mut().push(ServoTab {
-            title: "New Tab".to_owned(),
-            url: url.to_string(),
-            pinned: false,
-        });
-        let index = self.tabs.borrow().len() - 1;
-        self.active_tab.set(index);
-        *self.current_url.borrow_mut() = url.to_string();
-        if let Some(webview) = self.webview.borrow().as_ref() {
-            webview.clear_session_history();
-            webview.load(url);
-        }
-        self.update_window_title();
+    fn active_webview(&self) -> Option<WebView> {
+        self.webviews.borrow().get(self.active_tab.get()).and_then(|entry| entry.as_ref().cloned())
     }
 
-    fn close_active_tab(&self) {
-        let mut tabs = self.tabs.borrow_mut();
-        if tabs.len() > 1 {
-            let index = self.active_tab.get().min(tabs.len() - 1);
-            if tabs[index].pinned {
-                self.window.set_title("Pinned tab cannot be closed — Blaze");
-                return;
-            }
-            tabs.remove(index);
-            self.active_tab.set(index.min(tabs.len() - 1));
-        } else if let Some(tab) = tabs.first_mut() {
-            if tab.pinned {
-                self.window.set_title("Pinned tab cannot be closed — Blaze");
-                return;
-            }
-            tab.title = "New Tab".to_owned();
-            tab.url = "about:blank".to_owned();
-        }
-        let index = self.active_tab.get();
-        let target = tabs.get(index).map(|tab| tab.url.clone()).unwrap_or_else(|| "about:blank".to_owned());
-        drop(tabs);
+    fn tab_index_for_webview(&self, candidate: &WebView) -> Option<usize> {
+        self.webviews.borrow().iter().position(|entry| entry.as_ref().is_some_and(|view| view.id() == candidate.id()))
+    }
 
-        match Url::parse(&target) {
-            Ok(url) => {
-                *self.current_url.borrow_mut() = url.to_string();
-                if let Some(webview) = self.webview.borrow().as_ref() {
-                    webview.clear_session_history();
-                    webview.load(url);
+    fn ensure_active_webview(self: &Rc<Self>) {
+        let index = self.active_tab.get();
+        let url_text = {
+            let tabs = self.tabs.borrow();
+            let Some(tab) = tabs.get(index) else { return };
+            tab.url.clone()
+        };
+        if self.webviews.borrow().get(index).is_none_or(Option::is_none) {
+            match Url::parse(&url_text) {
+                Ok(url) => {
+                    let view = WebViewBuilder::new(&self.servo, self.rendering_context.clone())
+                        .url(url)
+                        .hidpi_scale_factor(Scale::new(self.window.scale_factor() as f32))
+                        .delegate(self.clone())
+                        .build();
+                    let mut views = self.webviews.borrow_mut();
+                    if views.len() <= index { views.resize_with(index + 1, || None); }
+                    views[index] = Some(view);
+                }
+                Err(error) => { warn!(?error, "Could not create active Blaze WebView"); return; }
+            }
+        }
+        let tick = self.focus_tick.get().saturating_add(1);
+        self.focus_tick.set(tick);
+        if let Some(value) = self.last_used.borrow_mut().get_mut(index) { *value = tick; }
+        {
+            let views = self.webviews.borrow();
+            for (tab_index, entry) in views.iter().enumerate() {
+                if let Some(view) = entry {
+                    if tab_index == index { view.show(); view.set_focused(true); }
+                    else { view.set_focused(false); view.hide(); }
                 }
             }
-            Err(error) => warn!(?error, "Could not restore URL after closing a Blaze tab"),
         }
+        *self.current_url.borrow_mut() = url_text;
+        self.trim_background_webviews();
         self.update_window_title();
+        self.window.request_redraw();
     }
 
-    fn toggle_active_tab_pin(&self) {
+    fn trim_background_webviews(&self) {
+        const MAX_LIVE_WEBVIEWS: usize = 4;
+        let active = self.active_tab.get();
+        let tabs = self.tabs.borrow();
+        let mut views = self.webviews.borrow_mut();
+        let last_used = self.last_used.borrow();
+        let mut live = views.iter().filter(|entry| entry.is_some()).count();
+        if live <= MAX_LIVE_WEBVIEWS { return; }
+        let mut candidates = views.iter().enumerate().filter_map(|(index, entry)| {
+            let tab = tabs.get(index)?;
+            (entry.is_some() && index != active && !tab.pinned)
+                .then_some((last_used.get(index).copied().unwrap_or(0), index))
+        }).collect::<Vec<_>>();
+        candidates.sort_by_key(|(tick, _)| *tick);
+        for (_, index) in candidates {
+            if live <= MAX_LIVE_WEBVIEWS { break; }
+            if let Some(view) = views.get_mut(index).and_then(Option::take) {
+                view.set_focused(false);
+                view.hide();
+                live -= 1;
+            }
+        }
+    }
+
+    fn new_tab(self: &Rc<Self>) {
+        let url = Url::parse("about:blank").expect("about:blank is valid");
+        let index = {
+            let mut tabs = self.tabs.borrow_mut();
+            tabs.push(ServoTab { title: "New Tab".to_owned(), url: url.to_string(), pinned: false });
+            tabs.len() - 1
+        };
+        self.webviews.borrow_mut().push(None);
+        self.last_used.borrow_mut().push(0);
+        self.active_tab.set(index);
+        self.ensure_active_webview();
+    }
+
+    fn close_active_tab(self: &Rc<Self>) {
+        let index = self.active_tab.get();
+        {
+            let mut tabs = self.tabs.borrow_mut();
+            if tabs.len() > 1 {
+                if tabs.get(index).is_some_and(|tab| tab.pinned) {
+                    self.window.set_title("Pinned tab cannot be closed — Blaze");
+                    return;
+                }
+                tabs.remove(index);
+                self.webviews.borrow_mut().remove(index);
+                self.last_used.borrow_mut().remove(index);
+                self.active_tab.set(index.min(tabs.len() - 1));
+            } else if let Some(tab) = tabs.first_mut() {
+                if tab.pinned { self.window.set_title("Pinned tab cannot be closed — Blaze"); return; }
+                tab.title = "New Tab".to_owned();
+                tab.url = "about:blank".to_owned();
+                if let Some(view) = self.webviews.borrow().first().and_then(Option::as_ref) {
+                    view.clear_session_history();
+                    view.load(Url::parse("about:blank").expect("about:blank is valid"));
+                }
+            }
+        }
+        self.ensure_active_webview();
+    }
+
+    fn toggle_active_tab_pin(&self) {    fn toggle_active_tab_pin(&self) {
         let mut tabs = self.tabs.borrow_mut();
         let index = self.active_tab.get().min(tabs.len().saturating_sub(1));
         let pinned = if let Some(tab) = tabs.get_mut(index) {
@@ -184,35 +245,16 @@ impl AppState {
         }
     }
 
-    fn cycle_tab(&self, backwards: bool) {
+    fn cycle_tab(self: &Rc<Self>, backwards: bool) {
         let count = self.tabs.borrow().len();
-        if count < 2 {
-            return;
-        }
+        if count < 2 { return; }
         let current = self.active_tab.get().min(count - 1);
-        let next = if backwards {
-            (current + count - 1) % count
-        } else {
-            (current + 1) % count
-        };
+        let next = if backwards { (current + count - 1) % count } else { (current + 1) % count };
         self.active_tab.set(next);
-        let url_text = self.tabs.borrow().get(next).map(|tab| tab.url.clone());
-        if let Some(url_text) = url_text {
-            match Url::parse(&url_text) {
-                Ok(url) => {
-                    *self.current_url.borrow_mut() = url.to_string();
-                    if let Some(webview) = self.webview.borrow().as_ref() {
-                        webview.clear_session_history();
-                        webview.load(url);
-                    }
-                }
-                Err(error) => warn!(?error, "Could not load tab URL during tab switch"),
-            }
-        }
-        self.update_window_title();
+        self.ensure_active_webview();
     }
 
-    fn webview_point(&self) -> servo::WebViewPoint {
+    fn webview_point(&self)    fn webview_point(&self) -> servo::WebViewPoint {
         let (x, y) = self.cursor_position.get();
         DevicePoint::new(x as f32, y as f32).into()
     }
@@ -243,7 +285,7 @@ impl AppState {
         ));
     }
 
-    fn commit_address(&self) {
+    fn commit_address(self: &Rc<Self>) {
         let requested = self.address_buffer.borrow().clone();
         match normalize_address(&requested) {
             Ok(url) => {
@@ -254,7 +296,7 @@ impl AppState {
                 }
                 self.address_editing.set(false);
                 self.update_window_title();
-                if let Some(webview) = self.webview.borrow().as_ref() {
+                if let Some(webview) = self.active_webview() {
                     webview.load(url);
                 }
             }
@@ -264,7 +306,7 @@ impl AppState {
         }
     }
 
-    fn handle_shortcut(&self, event: &winit::event::KeyEvent) -> bool {
+    fn handle_shortcut(self: &Rc<Self>, event: &winit::event::KeyEvent) -> bool {
         if self.address_editing.get() {
             if event.state != ElementState::Pressed {
                 return true;
@@ -311,7 +353,7 @@ impl AppState {
         }
 
         if control && lower_character == "r" {
-            if let Some(webview) = self.webview.borrow().as_ref() {
+            if let Some(webview) = self.active_webview() {
                 webview.reload();
             }
             return true;
@@ -340,7 +382,7 @@ impl AppState {
         if alt {
             match &event.logical_key {
                 WinitKey::Named(WinitNamedKey::ArrowLeft) => {
-                    if let Some(webview) = self.webview.borrow().as_ref() {
+                    if let Some(webview) = self.active_webview() {
                         if webview.can_go_back() {
                             webview.go_back(1);
                         }
@@ -348,7 +390,7 @@ impl AppState {
                     return true;
                 }
                 WinitKey::Named(WinitNamedKey::ArrowRight) => {
-                    if let Some(webview) = self.webview.borrow().as_ref() {
+                    if let Some(webview) = self.active_webview() {
                         if webview.can_go_forward() {
                             webview.go_forward(1);
                         }
@@ -368,30 +410,24 @@ impl servo::WebViewDelegate for AppState {
         self.window.request_redraw();
     }
 
-    fn notify_page_title_changed(&self, _webview: WebView, title: Option<String>) {
-        if self.address_editing.get() {
-            return;
-        }
-        let title = title
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "New Tab".to_owned());
-        if let Some(tab) = self.tabs.borrow_mut().get_mut(self.active_tab.get()) {
-            tab.title = title;
-        }
-        self.update_window_title();
+    fn notify_page_title_changed(&self, webview: WebView, title: Option<String>) {
+        let Some(index) = self.tab_index_for_webview(&webview) else { return };
+        if self.address_editing.get() && index == self.active_tab.get() { return; }
+        let title = title.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| "New Tab".to_owned());
+        if let Some(tab) = self.tabs.borrow_mut().get_mut(index) { tab.title = title; }
+        if index == self.active_tab.get() { self.update_window_title(); }
     }
 
-    fn notify_url_changed(&self, _webview: WebView, url: Url) {
-        *self.current_url.borrow_mut() = url.to_string();
-        if let Some(tab) = self.tabs.borrow_mut().get_mut(self.active_tab.get()) {
-            tab.url = url.to_string();
-        }
-        if !self.address_editing.get() {
-            self.update_window_title();
+    fn notify_url_changed(&self, webview: WebView, url: Url) {
+        let Some(index) = self.tab_index_for_webview(&webview) else { return };
+        if let Some(tab) = self.tabs.borrow_mut().get_mut(index) { tab.url = url.to_string(); }
+        if index == self.active_tab.get() {
+            *self.current_url.borrow_mut() = url.to_string();
+            if !self.address_editing.get() { self.update_window_title(); }
         }
     }
 
-    fn request_permission(&self, webview: WebView, request: PermissionRequest) {
+    fn request_permission(&self, webview: WebView, request: PermissionRequest) {    fn request_permission(&self, webview: WebView, request: PermissionRequest) {
         let Some(url) = webview.url() else {
             request.deny();
             return;
@@ -480,7 +516,9 @@ impl ApplicationHandler<WakerEvent> for App {
             window,
             servo,
             rendering_context,
-            webview: RefCell::new(None),
+            webviews: RefCell::new(Vec::new()),
+            last_used: RefCell::new(Vec::new()),
+            focus_tick: Cell::new(0),
             current_url: RefCell::new(initial_url.to_string()),
             tabs: RefCell::new(
                 env::var("BLAZE_SESSION_TABS")
@@ -523,14 +561,10 @@ impl ApplicationHandler<WakerEvent> for App {
         }
         state.active_tab.set(state.active_tab.get().min(state.tabs.borrow().len() - 1));
 
-        let webview = WebViewBuilder::new(&state.servo, state.rendering_context.clone())
-            .url(initial_url)
-            .hidpi_scale_factor(Scale::new(state.window.scale_factor() as f32))
-            .delegate(state.clone())
-            .build();
-        *state.webview.borrow_mut() = Some(webview);
-        state.update_window_title();
-        state.window.request_redraw();
+        let count = state.tabs.borrow().len();
+        *state.webviews.borrow_mut() = std::iter::repeat_with(|| None).take(count).collect();
+        *state.last_used.borrow_mut() = vec![0; count];
+        state.ensure_active_webview();
 
         *self = Self::Running(state);
     }
@@ -556,7 +590,7 @@ impl ApplicationHandler<WakerEvent> for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
-                if let Some(webview) = state.webview.borrow().as_ref() {
+                if let Some(webview) = state.active_webview() {
                     webview.paint();
                     state.rendering_context.present();
                 }
@@ -566,14 +600,14 @@ impl ApplicationHandler<WakerEvent> for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 state.cursor_position.set((position.x, position.y));
-                if let Some(webview) = state.webview.borrow().as_ref() {
+                if let Some(webview) = state.active_webview() {
                     webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(
                         state.webview_point(),
                     )));
                 }
             }
             WindowEvent::CursorLeft { .. } => {
-                if let Some(webview) = state.webview.borrow().as_ref() {
+                if let Some(webview) = state.active_webview() {
                     webview.notify_input_event(InputEvent::MouseLeftViewport(
                         MouseLeftViewportEvent::default(),
                     ));
@@ -592,7 +626,7 @@ impl ApplicationHandler<WakerEvent> for App {
                     ElementState::Pressed => MouseButtonAction::Down,
                     ElementState::Released => MouseButtonAction::Up,
                 };
-                if let Some(webview) = state.webview.borrow().as_ref() {
+                if let Some(webview) = state.active_webview() {
                     webview.notify_input_event(InputEvent::MouseButton(MouseButtonEvent::new(
                         action,
                         servo_button,
@@ -610,14 +644,14 @@ impl ApplicationHandler<WakerEvent> for App {
                         let mut keyboard_event =
                             KeyboardEvent::from_state_and_key(key_state, key);
                         keyboard_event.event.modifiers = to_servo_modifiers(state.modifiers.get());
-                        if let Some(webview) = state.webview.borrow().as_ref() {
+                        if let Some(webview) = state.active_webview() {
                             webview.notify_input_event(InputEvent::Keyboard(keyboard_event));
                         }
                     }
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if let Some(webview) = state.webview.borrow().as_ref() {
+                if let Some(webview) = state.active_webview() {
                     let (delta_x, delta_y, mode) = match delta {
                         MouseScrollDelta::LineDelta(dx, dy) => (
                             (dx * 76.0) as f64,
@@ -643,22 +677,22 @@ impl ApplicationHandler<WakerEvent> for App {
                 }
             }
             WindowEvent::Resized(new_size) => {
-                if let Some(webview) = state.webview.borrow().as_ref() {
+                if let Some(webview) = state.active_webview() {
                     webview.resize(new_size);
                 }
                 state.window.request_redraw();
             }
             WindowEvent::Focused(focused) => {
-                if let Some(webview) = state.webview.borrow().as_ref() {
+                if let Some(webview) = state.active_webview() {
                     webview.set_focused(focused);
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                if let Some(webview) = state.webview.borrow().as_ref() {
+                for webview in state.webviews.borrow().iter().flatten() {
                     webview.set_hidpi_scale_factor(Scale::new(scale_factor as f32));
                 }
             }
-            _ => {}
+            _ => {}            _ => {}
         }
 
         // Servo requires the embedder to pump its event loop after forwarding
