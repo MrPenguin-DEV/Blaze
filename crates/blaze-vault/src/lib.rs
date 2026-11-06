@@ -90,7 +90,7 @@ pub fn write_encrypted(
     plaintext: &[u8],
 ) -> Result<(), VaultError> {
     let path = path.as_ref();
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
     let temp_path = path.with_extension("blaze-tmp");
