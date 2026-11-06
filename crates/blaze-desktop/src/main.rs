@@ -14,11 +14,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         Some("--help") | Some("-h") => {
-            println!("Blaze {}\\n\\nUsage:\\n  blaze                 Open the workspace shell\\n  blaze --version       Print the beta version\\n  blaze --help          Show this help", env!("CARGO_PKG_VERSION"));
+            println!("Blaze {}\n\nUsage:\n  blaze                 Open the workspace shell\n  blaze --version       Print the beta version\n  blaze --help          Show this help", env!("CARGO_PKG_VERSION"));
             #[cfg(feature = "servo-host")]
             println!("  blaze --servo-host [URL]  Open the bundled Servo browser mode");
             #[cfg(not(feature = "servo-host"))]
-            println!("\\nBuild with --features servo-host to enable the browser mode.");
+            println!("\nBuild with --features servo-host to enable the browser mode.");
             return Ok(());
         }
         #[cfg(feature = "servo-host")]
