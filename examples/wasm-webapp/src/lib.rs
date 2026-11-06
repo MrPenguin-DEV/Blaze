@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 static CLICKS: AtomicU32 = AtomicU32::new(0);
-static FRAME: Mutex<[u8; 512]> = Mutex::new([0; 512]);
+static FRAME: Mutex<[u8; 1024]> = Mutex::new([0; 1024]);
 
 struct FrameWriter<'a> {
     output: &'a mut [u8],
@@ -41,7 +41,7 @@ pub extern "C" fn blaze_render(width: i32, height: i32) -> i64 {
     };
     let _ = write!(
         writer,
-        "{{\"title\":\"Blaze WASM Counter\",\"nodes\":[{{\"kind\":\"heading\",\"text\":\"Compiled WebAssembly app\"}},{{\"kind\":\"text\",\"text\":\"Native host viewport: {} × {}. Button presses: {}.\"}},{{\"kind\":\"button\",\"label\":\"Increment counter\",\"action\":1}},{{\"kind\":\"text\",\"text\":\"This app runs in a fuel- and memory-limited guest with no WASI or browser imports.\"}}]}}",
+        "{{\"title\":\"Blaze WASM Counter\",\"nodes\":[{{\"kind\":\"heading\",\"text\":\"Compiled WebAssembly app\"}},{{\"kind\":\"text\",\"text\":\"Native host viewport: {} × {}. Button presses: {}.\"}},{{\"kind\":\"canvas_rect\",\"x\":0.08,\"y\":0.16,\"width\":0.32,\"height\":0.58,\"color\":[48,120,210,255]}},{{\"kind\":\"canvas_circle\",\"x\":0.70,\"y\":0.45,\"radius\":0.22,\"color\":[70,190,130,255]}},{{\"kind\":\"progress_bar\",\"label\":\"Demo progress\",\"fraction\":0.72}},{{\"kind\":\"button\",\"label\":\"Increment counter\",\"action\":1}},{{\"kind\":\"text\",\"text\":\"WASM logic runs with fuel and memory limits; the native host paints these canvas primitives via wgpu.\"}}]}}",
         width, height, count
     );
     let pointer = writer.output.as_ptr() as usize as u32;
