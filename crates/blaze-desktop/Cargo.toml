@@ -34,7 +34,10 @@ blaze-core = { path = "../blaze-core" }
 blaze-vault = { path = "../blaze-vault" }
 blaze-office = { path = "../blaze-office" }
 blaze-profile = { path = "../blaze-profile" }
+blaze-comms = { path = "../blaze-comms" }
 eframe.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 directories = "6"
 
 servo = { version = "=0.8.0", optional = true }
