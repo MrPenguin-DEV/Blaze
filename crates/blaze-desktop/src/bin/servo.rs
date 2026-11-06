@@ -18,7 +18,7 @@ use servo::{
 };
 use tracing::warn;
 use url::Url;
-use webrender_api::units::{DevicePixel, DevicePoint};
+use webrender_api::units::DevicePoint;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{MouseScrollDelta, WindowEvent};
@@ -214,5 +214,3 @@ impl EventLoopWaker for Waker {
         }
     }
 }
-
-fn _device_pixel_marker(_: Scale<f32, DevicePixel, DevicePixel>) {}
