@@ -14,8 +14,9 @@ use embedder_traits::EventLoopWaker;
 use euclid::Scale;
 use servo::{
     webview_delegate::{NavigationRequest, PermissionRequest},
-    InputEvent, Key, KeyState, KeyboardEvent, MouseButton as ServoMouseButton,
-    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey, RenderingContext,
+    InputEvent, Key, KeyState, KeyboardEvent, Modifiers as ServoModifiers,
+    MouseButton as ServoMouseButton, MouseButtonAction, MouseButtonEvent,
+    MouseLeftViewportEvent, MouseMoveEvent, NamedKey, RenderingContext,
     Servo, ServoBuilder, WebView, WebViewBuilder, WheelDelta, WheelEvent, WheelMode,
     WindowRenderingContext,
 };
@@ -108,15 +109,14 @@ impl AppState {
     }
 
     fn handle_shortcut(&self, event: &winit::event::KeyEvent) -> bool {
-        if event.state != ElementState::Pressed {
-            return false;
-        }
-
-        let modifiers = self.modifiers.get();
-        let control = modifiers.control_key() || modifiers.super_key();
-        let alt = modifiers.alt_key();
-
         if self.address_editing.get() {
+            if event.state != ElementState::Pressed {
+                return true;
+            }
+
+            let modifiers = self.modifiers.get();
+            let control = modifiers.control_key() || modifiers.super_key();
+            let alt = modifiers.alt_key();
             match &event.logical_key {
                 WinitKey::Named(WinitNamedKey::Enter) => self.commit_address(),
                 WinitKey::Named(WinitNamedKey::Escape) => {
@@ -137,6 +137,13 @@ impl AppState {
             return true;
         }
 
+        if event.state != ElementState::Pressed {
+            return false;
+        }
+
+        let modifiers = self.modifiers.get();
+        let control = modifiers.control_key() || modifiers.super_key();
+        let alt = modifiers.alt_key();
         let lower_character = match &event.logical_key {
             WinitKey::Character(character) => character.to_ascii_lowercase(),
             _ => String::new(),
@@ -322,7 +329,11 @@ impl ApplicationHandler<WakerEvent> for App {
                 }
             }
             WindowEvent::CursorLeft { .. } => {
-                // No page-side pointer event is synthesized when the native cursor exits.
+                if let Some(webview) = state.webview.borrow().as_ref() {
+                    webview.notify_input_event(InputEvent::MouseLeftViewport(
+                        MouseLeftViewportEvent::default(),
+                    ));
+                }
             }
             WindowEvent::MouseInput { state: button_state, button, .. } => {
                 let servo_button = match button {
@@ -346,18 +357,18 @@ impl ApplicationHandler<WakerEvent> for App {
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                if state.handle_shortcut(&event) {
-                    return;
-                }
-                if let Some(key) = to_servo_key(&event.logical_key) {
-                    let key_state = match event.state {
-                        ElementState::Pressed => KeyState::Down,
-                        ElementState::Released => KeyState::Up,
-                    };
-                    if let Some(webview) = state.webview.borrow().as_ref() {
-                        webview.notify_input_event(InputEvent::Keyboard(
-                            KeyboardEvent::from_state_and_key(key_state, key),
-                        ));
+                if !state.handle_shortcut(&event) {
+                    if let Some(key) = to_servo_key(&event.logical_key) {
+                        let key_state = match event.state {
+                            ElementState::Pressed => KeyState::Down,
+                            ElementState::Released => KeyState::Up,
+                        };
+                        let mut keyboard_event =
+                            KeyboardEvent::from_state_and_key(key_state, key);
+                        keyboard_event.event.modifiers = to_servo_modifiers(state.modifiers.get());
+                        if let Some(webview) = state.webview.borrow().as_ref() {
+                            webview.notify_input_event(InputEvent::Keyboard(keyboard_event));
+                        }
                     }
                 }
             }
@@ -405,7 +416,20 @@ impl ApplicationHandler<WakerEvent> for App {
             }
             _ => {}
         }
+
+        // Servo requires the embedder to pump its event loop after forwarding
+        // input or invoking WebView actions.
+        state.servo.spin_event_loop();
     }
+}
+
+fn to_servo_modifiers(modifiers: ModifiersState) -> ServoModifiers {
+    let mut result = ServoModifiers::empty();
+    result.set(ServoModifiers::SHIFT, modifiers.shift_key());
+    result.set(ServoModifiers::CONTROL, modifiers.control_key());
+    result.set(ServoModifiers::ALT, modifiers.alt_key());
+    result.set(ServoModifiers::META, modifiers.super_key());
+    result
 }
 
 fn to_servo_key(key: &WinitKey) -> Option<Key> {
