@@ -1,0 +1,21 @@
+[package]
+name = "blaze-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Native GPU-rendered desktop shell for Blaze"
+
+[[bin]]
+name = "blaze"
+path = "src/main.rs"
+
+[dependencies]
+blaze-browser = { path = "../blaze-browser" }
+blaze-core = { path = "../blaze-core" }
+blaze-vault = { path = "../blaze-vault" }
+eframe.workspace = true
+directories = "6"
+
+[lints]
+workspace = true
