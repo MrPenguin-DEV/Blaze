@@ -132,8 +132,8 @@ impl AppState {
             (current + 1) % count
         };
         self.active_tab.set(next);
-        if let Some(tab) = self.tabs.borrow().get(next) {
-            let url_text = tab.url.clone();
+        let url_text = self.tabs.borrow().get(next).map(|tab| tab.url.clone());
+        if let Some(url_text) = url_text {
             match Url::parse(&url_text) {
                 Ok(url) => {
                     *self.current_url.borrow_mut() = url.to_string();
