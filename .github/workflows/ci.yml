@@ -53,10 +53,8 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Fetch dependencies and patch epaint Vello glyph rendering
-        run: |
-          cargo fetch
-          python3 scripts/patch-epaint-vello.py
+      - name: Fetch dependencies (including Quackdoc epaint Vello fix)
+        run: cargo fetch
 
       - name: Install the WebAssembly target
         run: rustup target add wasm32-unknown-unknown
