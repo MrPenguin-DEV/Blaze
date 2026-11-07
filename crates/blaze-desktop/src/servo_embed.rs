@@ -1,27 +1,32 @@
-//! Servo embedded directly into Blaze's existing eframe window.
+//! Servo embedded directly into Blaze's existing eframe OpenGL context.
 //!
-//! One Servo engine is shared by independent per-tab WebViews. The engine
-//! renders offscreen; the resulting frame is uploaded to egui's GPU texture.
+//! Servo renders into an FBO texture owned by the same GL context that eframe
+//! uses. The texture is registered with egui as a native GL texture, avoiding
+//! a GPU-to-CPU readback and a second upload for every browser frame.
 
 use std::cell::{Cell, RefCell};
+use std::ffi::{CStr, CString, c_void};
+use std::num::NonZeroU32;
 use std::rc::Rc;
+use std::sync::Arc;
 
-use eframe::egui;
-use euclid::{Box2D, Point2D, Scale};
+use eframe::{egui, glow};
+use euclid::Scale;
+use gleam::gl::{self, Gl};
 use servo::{
     EventLoopWaker, InputEvent, Key, KeyState, KeyboardEvent, MouseButton as ServoMouseButton,
-    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey, RenderingContext, Servo,
-    ServoBuilder, SoftwareRenderingContext, WebView, WebViewBuilder, WebViewDelegate,
-    WheelDelta, WheelEvent, WheelMode, NavigationRequest,
+    MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey, NavigationRequest,
+    RgbaImage, RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder, WebViewDelegate,
+    WheelDelta, WheelEvent, WheelMode,
 };
 use tracing::warn;
 use url::Url;
 use winit::dpi::PhysicalSize;
-use webrender_api::units::DevicePoint;
+use webrender_api::units::{DeviceIntRect, DevicePoint};
 
 pub struct ServoBrowser {
     servo: Servo,
-    rendering: Rc<SoftwareRenderingContext>,
+    rendering: Rc<EguiGlRenderingContext>,
     egui_context: egui::Context,
 }
 
@@ -34,18 +39,199 @@ pub struct ServoPage {
     last_size: Cell<PhysicalSize<u32>>,
 }
 
-impl ServoBrowser {
-    pub fn new(ctx: egui::Context, size: PhysicalSize<u32>) -> Result<Self, String> {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let size = PhysicalSize::new(size.width.max(1), size.height.max(1));
-        let rendering = Rc::new(
-            SoftwareRenderingContext::new(size)
-                .map_err(|error| format!("Servo offscreen renderer: {error:?}"))?,
-        );
-        rendering
-            .make_current()
-            .map_err(|error| format!("Servo renderer activation: {error:?}"))?;
+struct EguiGlRenderingContext {
+    gleam_gl: Rc<dyn Gl>,
+    glow_gl: Arc<glow::Context>,
+    size: Cell<PhysicalSize<u32>>,
+    framebuffer_id: u32,
+    renderbuffer_id: u32,
+    texture_id: u32,
+    texture_registered: Cell<bool>,
+}
 
+impl EguiGlRenderingContext {
+    #[expect(unsafe_code)]
+    fn load_gleam_api(
+        get_proc_address: Arc<dyn Fn(&CStr) -> *const c_void + Send + Sync>,
+    ) -> Rc<dyn Gl> {
+        let api = unsafe {
+            gl::GlFns::load_with(|name| {
+                let name = CString::new(name).expect("OpenGL symbol names cannot contain NUL");
+                get_proc_address(&name)
+            })
+        };
+        Rc::new(api)
+    }
+
+    fn new(
+        glow_gl: Arc<glow::Context>,
+        get_proc_address: Arc<dyn Fn(&CStr) -> *const c_void + Send + Sync>,
+        size: PhysicalSize<u32>,
+    ) -> Result<Self, String> {
+        let size = PhysicalSize::new(size.width.max(1), size.height.max(1));
+        let gleam_gl = Self::load_gleam_api(get_proc_address);
+
+        let framebuffer_ids = gleam_gl.gen_framebuffers(1);
+        let texture_ids = gleam_gl.gen_textures(1);
+        let renderbuffer_ids = gleam_gl.gen_renderbuffers(1);
+        let (Some(&framebuffer_id), Some(&texture_id), Some(&renderbuffer_id)) =
+            (framebuffer_ids.first(), texture_ids.first(), renderbuffer_ids.first())
+        else {
+            return Err("OpenGL did not allocate the browser framebuffer.".into());
+        };
+
+        gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, framebuffer_id);
+        gleam_gl.bind_texture(gl::TEXTURE_2D, texture_id);
+        gleam_gl.tex_image_2d(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as gl::GLint,
+            size.width as gl::GLsizei,
+            size.height as gl::GLsizei,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            None,
+        );
+        gleam_gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as gl::GLint);
+        gleam_gl.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as gl::GLint);
+        gleam_gl.framebuffer_texture_2d(
+            gl::FRAMEBUFFER,
+            gl::COLOR_ATTACHMENT0,
+            gl::TEXTURE_2D,
+            texture_id,
+            0,
+        );
+
+        gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, renderbuffer_id);
+        gleam_gl.renderbuffer_storage(
+            gl::RENDERBUFFER,
+            gl::DEPTH_COMPONENT24,
+            size.width as gl::GLsizei,
+            size.height as gl::GLsizei,
+        );
+        gleam_gl.framebuffer_renderbuffer(
+            gl::FRAMEBUFFER,
+            gl::DEPTH_ATTACHMENT,
+            gl::RENDERBUFFER,
+            renderbuffer_id,
+        );
+        gleam_gl.bind_texture(gl::TEXTURE_2D, 0);
+
+        let status = gleam_gl.check_framebuffer_status(gl::FRAMEBUFFER);
+        gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        if status != gl::FRAMEBUFFER_COMPLETE {
+            gleam_gl.delete_textures(&[texture_id]);
+            gleam_gl.delete_renderbuffers(&[renderbuffer_id]);
+            gleam_gl.delete_framebuffers(&[framebuffer_id]);
+            return Err(format!("Browser OpenGL framebuffer is incomplete (0x{status:x})."));
+        }
+
+        Ok(Self {
+            gleam_gl,
+            glow_gl,
+            size: Cell::new(size),
+            framebuffer_id,
+            renderbuffer_id,
+            texture_id,
+            texture_registered: Cell::new(false),
+        })
+    }
+
+    fn native_texture(&self) -> glow::NativeTexture {
+        glow::NativeTexture(
+            NonZeroU32::new(self.texture_id)
+                .expect("OpenGL texture names are non-zero"),
+        )
+    }
+
+    fn mark_texture_registered(&self) {
+        self.texture_registered.set(true);
+    }
+}
+
+impl Drop for EguiGlRenderingContext {
+    fn drop(&mut self) {
+        self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        if !self.texture_registered.get() {
+            self.gleam_gl.delete_textures(&[self.texture_id]);
+        }
+        self.gleam_gl.delete_renderbuffers(&[self.renderbuffer_id]);
+        self.gleam_gl.delete_framebuffers(&[self.framebuffer_id]);
+    }
+}
+
+impl RenderingContext for EguiGlRenderingContext {
+    fn prepare_for_rendering(&self) {
+        self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
+    }
+
+    fn read_to_image(&self, _source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
+        // The native GL texture is sampled directly by egui. Never read it back to CPU memory.
+        None
+    }
+
+    fn size(&self) -> PhysicalSize<u32> {
+        self.size.get()
+    }
+
+    fn resize(&self, size: PhysicalSize<u32>) {
+        let size = PhysicalSize::new(size.width.max(1), size.height.max(1));
+        if self.size.get() == size {
+            return;
+        }
+
+        self.gleam_gl.bind_texture(gl::TEXTURE_2D, self.texture_id);
+        self.gleam_gl.tex_image_2d(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as gl::GLint,
+            size.width as gl::GLsizei,
+            size.height as gl::GLsizei,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            None,
+        );
+        self.gleam_gl.bind_texture(gl::TEXTURE_2D, 0);
+        self.gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, self.renderbuffer_id);
+        self.gleam_gl.renderbuffer_storage(
+            gl::RENDERBUFFER,
+            gl::DEPTH_COMPONENT24,
+            size.width as gl::GLsizei,
+            size.height as gl::GLsizei,
+        );
+        self.gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, 0);
+        self.size.set(size);
+    }
+
+    fn present(&self) {
+        // eframe composites the same GL texture later in this frame.
+    }
+
+    fn make_current(&self) -> Result<(), surfman::Error> {
+        // eframe owns and has already made the shared GL context current.
+        Ok(())
+    }
+
+    fn gleam_gl_api(&self) -> Rc<dyn Gl> {
+        self.gleam_gl.clone()
+    }
+
+    fn glow_gl_api(&self) -> Arc<glow::Context> {
+        self.glow_gl.clone()
+    }
+}
+
+impl ServoBrowser {
+    pub fn new(
+        ctx: egui::Context,
+        glow_gl: Arc<glow::Context>,
+        get_proc_address: Arc<dyn Fn(&CStr) -> *const c_void + Send + Sync>,
+        size: PhysicalSize<u32>,
+    ) -> Result<Self, String> {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let rendering = Rc::new(EguiGlRenderingContext::new(glow_gl, get_proc_address, size)?);
         let servo = ServoBuilder::default()
             .event_loop_waker(Box::new(EguiWaker(ctx.clone())))
             .build();
@@ -55,6 +241,14 @@ impl ServoBrowser {
             rendering,
             egui_context: ctx,
         })
+    }
+
+    pub fn native_texture(&self) -> glow::NativeTexture {
+        self.rendering.native_texture()
+    }
+
+    pub fn mark_texture_registered(&self) {
+        self.rendering.mark_texture_registered();
     }
 
     pub fn create_page(&self, url: &str, scale: f32) -> Result<ServoPage, String> {
@@ -110,11 +304,7 @@ impl ServoBrowser {
         Ok(())
     }
 
-    pub fn spin(&self) {
-        self.servo.spin_event_loop();
-    }
-
-    pub fn render(&self, page: &ServoPage, size: PhysicalSize<u32>) -> Result<Option<egui::ColorImage>, String> {
+    pub fn render(&self, page: &ServoPage, size: PhysicalSize<u32>) -> Result<(), String> {
         let size = PhysicalSize::new(size.width.max(1), size.height.max(1));
         if page.last_size.get() != size {
             page.webview.resize(size);
@@ -124,28 +314,15 @@ impl ServoBrowser {
 
         self.servo.spin_event_loop();
         if !page.needs_paint.replace(false) {
-            return Ok(None);
+            return Ok(());
         }
 
         self.rendering
             .make_current()
-            .map_err(|error| format!("Servo renderer activation: {error:?}"))?;
+            .map_err(|error| format!("Servo GL context activation: {error:?}"))?;
         page.webview.paint();
-
-        // Read the back buffer before present swaps it.
-        let rect = Box2D::new(
-            Point2D::new(0, 0),
-            Point2D::new(size.width as i32, size.height as i32),
-        );
-        let image = self.rendering.read_to_image(rect);
         self.rendering.present();
-
-        Ok(image.map(|image| {
-            egui::ColorImage::from_rgba_unmultiplied(
-                [image.width() as usize, image.height() as usize],
-                image.as_raw(),
-            )
-        }))
+        Ok(())
     }
 
     pub fn current_url(&self, page: &ServoPage) -> String {
@@ -178,7 +355,14 @@ impl ServoBrowser {
         ));
     }
 
-    pub fn forward_mouse_button(&self, page: &ServoPage, x: f32, y: f32, button: egui::PointerButton, pressed: bool) {
+    pub fn forward_mouse_button(
+        &self,
+        page: &ServoPage,
+        x: f32,
+        y: f32,
+        button: egui::PointerButton,
+        pressed: bool,
+    ) {
         let button = match button {
             egui::PointerButton::Primary => ServoMouseButton::Primary,
             egui::PointerButton::Secondary => ServoMouseButton::Secondary,
