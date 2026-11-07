@@ -99,7 +99,7 @@ pub struct BlazeApp {
     #[cfg(feature = "servo-browser")]
     servo_pages: Vec<Option<crate::servo_embed::ServoPage>>,
     #[cfg(feature = "servo-browser")]
-    servo_texture: Option<egui::TextureId>,
+    servo_texture: Option<egui::TextureHandle>,
     browser_focused: bool,
 }
 
@@ -289,7 +289,7 @@ impl BlazeApp {
         );
     }
 
-    fn browser_panel(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    fn browser_panel(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.heading("Browser");
         ui.add_space(6.0);
 
@@ -423,12 +423,6 @@ impl BlazeApp {
                 response.request_focus();
             }
 
-            if self.servo_texture.is_none() {
-                if let Some(browser) = self.servo_browser.as_ref() {
-                    self.servo_texture = Some(frame.register_native_glow_texture(browser.native_texture()));
-                    browser.mark_texture_registered();
-                }
-            }
             if self.servo_pages.len() < self.tabs.len() {
                 self.servo_pages.resize_with(self.tabs.len(), || None);
             }
@@ -485,8 +479,22 @@ impl BlazeApp {
                         (rect.width() * scale).max(1.0) as u32,
                         (rect.height() * scale).max(1.0) as u32,
                     );
-                    if let Err(error) = browser.render(page, physical_size) {
-                        self.browser_status = format!("Browser rendering error: {error}");
+                    match browser.render(page, physical_size) {
+                        Ok(Some(image)) => {
+                            if let Some(texture) = self.servo_texture.as_mut() {
+                                texture.set(image, egui::TextureOptions::LINEAR);
+                            } else {
+                                self.servo_texture = Some(ui.ctx().load_texture(
+                                    "blaze-servo-page",
+                                    image,
+                                    egui::TextureOptions::LINEAR,
+                                ));
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            self.browser_status = format!("Browser rendering error: {error}");
+                        }
                     }
 
                     self.address = browser.current_url(page);
@@ -495,9 +503,9 @@ impl BlazeApp {
                 }
             }
 
-            if let Some(texture) = self.servo_texture {
+            if let Some(texture) = self.servo_texture.as_ref() {
                 ui.painter().image(
-                    texture,
+                    texture.id(),
                     rect,
                     egui::Rect::from_min_max(egui::pos2(0.0, 1.0), egui::pos2(1.0, 0.0)),
                     egui::Color32::WHITE,
