@@ -27,6 +27,7 @@ pub struct ServoBrowser {
 pub struct ServoPage {
     pub webview: WebView,
     needs_paint: Rc<Cell<bool>>,
+    active: Rc<Cell<bool>>,
     current_url: Rc<RefCell<String>>,
     title: Rc<RefCell<String>>,
     last_size: Cell<PhysicalSize<u32>>,
@@ -58,11 +59,13 @@ impl ServoBrowser {
     pub fn create_page(&self, url: &str, scale: f32) -> Result<ServoPage, String> {
         let parsed = Url::parse(url).map_err(|error| error.to_string())?;
         let needs_paint = Rc::new(Cell::new(true));
+        let active = Rc::new(Cell::new(false));
         let current_url = Rc::new(RefCell::new(url.to_owned()));
         let title = Rc::new(RefCell::new(parsed.host_str().unwrap_or("New Tab").to_owned()));
         let delegate = Rc::new(PageDelegate {
             context: self.egui_context.clone(),
             needs_paint: needs_paint.clone(),
+            active: active.clone(),
             current_url: current_url.clone(),
             title: title.clone(),
         });
@@ -76,6 +79,7 @@ impl ServoBrowser {
         Ok(ServoPage {
             webview,
             needs_paint,
+            active,
             current_url,
             title,
             last_size: Cell::new(self.rendering.size()),
@@ -83,6 +87,7 @@ impl ServoBrowser {
     }
 
     pub fn activate(&self, page: &ServoPage) {
+        page.active.set(true);
         page.webview.show();
         page.webview.focus();
         page.needs_paint.set(true);
@@ -90,6 +95,7 @@ impl ServoBrowser {
     }
 
     pub fn deactivate(&self, page: &ServoPage) {
+        page.active.set(false);
         page.webview.blur();
         page.webview.hide();
     }
@@ -232,6 +238,7 @@ impl EventLoopWaker for EguiWaker {
 struct PageDelegate {
     context: egui::Context,
     needs_paint: Rc<Cell<bool>>,
+    active: Rc<Cell<bool>>,
     current_url: Rc<RefCell<String>>,
     title: Rc<RefCell<String>>,
 }
@@ -239,19 +246,25 @@ struct PageDelegate {
 impl WebViewDelegate for PageDelegate {
     fn notify_new_frame_ready(&self, _webview: WebView) {
         self.needs_paint.set(true);
-        self.context.request_repaint();
+        if self.active.get() {
+            self.context.request_repaint();
+        }
     }
 
     fn notify_url_changed(&self, _webview: WebView, url: Url) {
         *self.current_url.borrow_mut() = url.to_string();
-        self.context.request_repaint();
+        if self.active.get() {
+            self.context.request_repaint();
+        }
     }
 
     fn notify_page_title_changed(&self, _webview: WebView, title: Option<String>) {
         if let Some(title) = title.filter(|title| !title.trim().is_empty()) {
             *self.title.borrow_mut() = title;
         }
-        self.context.request_repaint();
+        if self.active.get() {
+            self.context.request_repaint();
+        }
     }
 
     fn request_navigation(&self, _webview: WebView, request: NavigationRequest) {
