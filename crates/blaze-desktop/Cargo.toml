@@ -13,9 +13,8 @@ path = "src/main.rs"
 [features]
 default = []
 # Opt-in because Servo pulls in a substantial browser-engine/media dependency tree.
-servo-host = [
+servo-browser = [
     "dep:servo",
-    "dep:embedder_traits",
     "dep:euclid",
     "dep:winit",
     "dep:webrender_api",
