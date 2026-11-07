@@ -60,7 +60,7 @@ impl EguiGlRenderingContext {
                 get_proc_address(&name)
             })
         };
-        Rc::new(api)
+        api
     }
 
     fn new(
@@ -118,7 +118,7 @@ impl EguiGlRenderingContext {
         );
         gleam_gl.bind_texture(gl::TEXTURE_2D, 0);
 
-        let status = gleam_gl.check_framebuffer_status(gl::FRAMEBUFFER);
+        let status = gleam_gl.check_frame_buffer_status(gl::FRAMEBUFFER);
         gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
         if status != gl::FRAMEBUFFER_COMPLETE {
             gleam_gl.delete_textures(&[texture_id]);
@@ -305,14 +305,14 @@ impl ServoBrowser {
     pub fn activate(&self, page: &ServoPage) {
         page.active.set(true);
         page.webview.show();
-        page.webview.focus();
+        page.webview.set_focused(true);
         page.needs_paint.set(true);
         self.egui_context.request_repaint();
     }
 
     pub fn deactivate(&self, page: &ServoPage) {
         page.active.set(false);
-        page.webview.blur();
+        page.webview.set_focused(false);
         page.webview.hide();
     }
 
