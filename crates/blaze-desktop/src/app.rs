@@ -101,7 +101,7 @@ pub struct BlazeApp {
     #[cfg(feature = "servo-browser")]
     servo_pages: Vec<Option<crate::servo_embed::ServoPage>>,
     #[cfg(feature = "servo-browser")]
-    servo_textures: Vec<Option<egui::TextureHandle>>, 
+    servo_textures: Vec<Option<egui::TextureHandle>>,
     browser_focused: bool,
 }
 
