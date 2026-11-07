@@ -99,7 +99,7 @@ pub struct BlazeApp {
     #[cfg(feature = "servo-browser")]
     servo_pages: Vec<Option<crate::servo_embed::ServoPage>>,
     #[cfg(feature = "servo-browser")]
-    servo_texture: Option<egui::TextureHandle>,
+    servo_texture: Option<egui::TextureId>,
     browser_focused: bool,
 }
 
@@ -171,6 +171,40 @@ impl Default for BlazeApp {
     }
 }
 
+impl BlazeApp {
+    pub fn new(context: &eframe::CreationContext<'_>) -> Self {
+        let mut app = Self::default();
+
+        #[cfg(feature = "servo-browser")]
+        {
+            let Some(glow) = context.gl.clone() else {
+                app.browser_status = "The embedded browser requires eframe's OpenGL renderer.".into();
+                return app;
+            };
+            let Some(get_proc_address) = context.get_proc_address.clone() else {
+                app.browser_status = "Could not access OpenGL function pointers.".into();
+                return app;
+            };
+            let size = context
+                .winit_window()
+                .map(|window| window.inner_size())
+                .unwrap_or_else(|| winit::dpi::PhysicalSize::new(1440, 760));
+
+            match crate::servo_embed::ServoBrowser::new(
+                context.egui_ctx.clone(),
+                glow,
+                get_proc_address,
+                size,
+            ) {
+                Ok(browser) => app.servo_browser = Some(browser),
+                Err(error) => app.browser_status = format!("Could not initialize Servo: {error}"),
+            }
+        }
+
+        app
+    }
+}
+
 impl eframe::App for BlazeApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.render_header(ui);
@@ -194,7 +228,7 @@ impl eframe::App for BlazeApp {
                 }
 
                 match self.section {
-                    Section::Browser => self.browser_panel(ui),
+                    Section::Browser => self.browser_panel(ui, _frame),
                     Section::Code => self.code_panel(ui),
                     Section::Documents => self.documents_panel(ui),
                     Section::Sheets => self.sheets_panel(ui),
@@ -255,7 +289,7 @@ impl BlazeApp {
         );
     }
 
-    fn browser_panel(&mut self, ui: &mut egui::Ui) {
+    fn browser_panel(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         ui.heading("Browser");
         ui.add_space(6.0);
 
@@ -389,13 +423,10 @@ impl BlazeApp {
                 response.request_focus();
             }
 
-            if self.servo_browser.is_none() {
-                match crate::servo_embed::ServoBrowser::new(
-                    ui.ctx().clone(),
-                    winit::dpi::PhysicalSize::new((width * scale) as u32, (height * scale) as u32),
-                ) {
-                    Ok(browser) => self.servo_browser = Some(browser),
-                    Err(error) => self.browser_status = format!("Could not initialize Servo: {error}"),
+            if self.servo_texture.is_none() {
+                if let Some(browser) = self.servo_browser.as_ref() {
+                    self.servo_texture = Some(frame.register_native_glow_texture(browser.native_texture()));
+                    browser.mark_texture_registered();
                 }
             }
             if self.servo_pages.len() < self.tabs.len() {
@@ -454,20 +485,8 @@ impl BlazeApp {
                         (rect.width() * scale).max(1.0) as u32,
                         (rect.height() * scale).max(1.0) as u32,
                     );
-                    match browser.render(page, physical_size) {
-                        Ok(Some(image)) => {
-                            if let Some(texture) = self.servo_texture.as_mut() {
-                                texture.set(image, egui::TextureOptions::LINEAR);
-                            } else {
-                                self.servo_texture = Some(ui.ctx().load_texture(
-                                    "blaze-servo-browser-page",
-                                    image,
-                                    egui::TextureOptions::LINEAR,
-                                ));
-                            }
-                        }
-                        Ok(None) => {}
-                        Err(error) => self.browser_status = format!("Browser rendering error: {error}"),
+                    if let Err(error) = browser.render(page, physical_size) {
+                        self.browser_status = format!("Browser rendering error: {error}");
                     }
 
                     self.address = browser.current_url(page);
@@ -476,11 +495,11 @@ impl BlazeApp {
                 }
             }
 
-            if let Some(texture) = self.servo_texture.as_ref() {
+            if let Some(texture) = self.servo_texture {
                 ui.painter().image(
-                    texture.id(),
+                    texture,
                     rect,
-                    egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                    egui::Rect::from_min_max(egui::pos2(0.0, 1.0), egui::pos2(1.0, 0.0)),
                     egui::Color32::WHITE,
                 );
             } else {
