@@ -17,7 +17,7 @@ pub enum NavigationError {
     UnsupportedScheme,
 }
 
-/// Parses a URL or converts a plain search phrase into a DuckDuckGo query.
+/// Parses a URL or converts a plain search phrase into a Google search query.
 /// Dangerous or unsupported schemes are rejected before they reach an engine.
 pub fn normalize_address(input: &str) -> Result<Url, NavigationError> {
     let input = input.trim();
@@ -37,7 +37,7 @@ pub fn normalize_address(input: &str) -> Result<Url, NavigationError> {
     }
 
     if input.chars().any(char::is_whitespace) && !input.contains("://") {
-        let mut search = Url::parse("https://duckduckgo.com/?q=")
+        let mut search = Url::parse("https://www.google.com/search?q=")
             .map_err(|_| NavigationError::InvalidUrl)?;
         search.query_pairs_mut().append_pair("q", input);
         return Ok(search);
@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn converts_search_terms_to_search_url() {
         let url = normalize_address("blaze rust browser").unwrap();
-        assert_eq!(url.host_str(), Some("duckduckgo.com"));
+        assert_eq!(url.host_str(), Some("www.google.com"));
         assert!(url.query().unwrap().contains("blaze"));
     }
 }
