@@ -68,8 +68,10 @@ impl BlazeApp {
                 url: "https://www.google.com/".into(),
             });
             #[cfg(feature = "servo-browser")]
-            self.servo_pages.push(None);
-            self.servo_textures.push(None);
+            {
+                self.servo_pages.push(None);
+                self.servo_textures.push(None);
+            }
             self.active_tab = self.tabs.len() - 1;
             self.address = "https://www.google.com/".into();
             self.browser_focused = false;
@@ -286,8 +288,10 @@ impl BlazeApp {
         self.tab_policy.close(id);
         self.tabs.remove(index);
         #[cfg(feature = "servo-browser")]
-        self.servo_pages.remove(index);
-        self.servo_textures.remove(index);
+        {
+            self.servo_pages.remove(index);
+            self.servo_textures.remove(index);
+        }
 
         if index < self.active_tab {
             self.active_tab -= 1;
