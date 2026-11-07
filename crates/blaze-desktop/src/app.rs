@@ -489,7 +489,7 @@ impl BlazeApp {
                                 texture.set(image, egui::TextureOptions::LINEAR);
                             } else {
                                 self.servo_textures[self.active_tab] = Some(ui.ctx().load_texture(
-                                    format!("blaze-servo-page-{}", self.tabs[self.active_tab].id),
+                                    format!("blaze-servo-page-{}", self.tabs[self.active_tab].id.get()),
                                     image,
                                     egui::TextureOptions::LINEAR,
                                 ));
