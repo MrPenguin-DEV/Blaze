@@ -1,31 +1,20 @@
 mod app;
 
-#[cfg(feature = "servo-host")]
-#[path = "servo_host.rs"]
-mod servo_host;
+#[cfg(feature = "servo-browser")]
+mod servo_embed;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let first = args.next();
-
-    match first.as_deref() {
+    match args.next().as_deref() {
         Some("--version") | Some("-V") => {
             println!("Blaze {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
         Some("--help") | Some("-h") => {
-            println!("Blaze {}\n\nUsage:\n  blaze                 Open the workspace shell\n  blaze --version       Print the beta version\n  blaze --help          Show this help", env!("CARGO_PKG_VERSION"));
-            #[cfg(feature = "servo-host")]
-            println!("  blaze --servo-host [URL]  Open the bundled Servo browser mode");
-            #[cfg(not(feature = "servo-host"))]
-            println!("\nBuild with --features servo-host to enable the browser mode.");
+            println!("Blaze {}\n\nUsage:\n  blaze                 Open the Blaze workspace\n  blaze --version       Print the beta version\n  blaze --help          Show this help", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
-        #[cfg(feature = "servo-host")]
-        Some("--servo-host") => return servo_host::run(),
-        Some(unknown) => {
-            return Err(format!("Unknown option: {unknown}. Use --help for usage.").into());
-        }
+        Some(unknown) => return Err(format!("Unknown option: {unknown}. Use --help for usage.").into()),
         None => {}
     }
 
