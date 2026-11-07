@@ -50,6 +50,11 @@ jobs:
           # Reuse compiled dependencies and build artifacts between beta runs.
           cache-on-failure: true
 
+      - name: Fetch dependencies and patch epaint Vello glyph rendering
+        run: |
+          cargo fetch
+          python3 scripts/patch-epaint-vello.py
+
       - name: Install WebAssembly target
         run: rustup target add wasm32-unknown-unknown
 
