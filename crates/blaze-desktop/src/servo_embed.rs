@@ -167,7 +167,22 @@ impl EguiGlRenderingContext {
 
 impl Drop for EguiGlRenderingContext {
     fn drop(&mut self) {
-        self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        // Deleting a framebuffer that is still bound implicitly switches the
+        // context to framebuffer 0. Restore the target that was active before
+        // Servo began rendering instead; never blindly redirect eframe to 0.
+        let mut bound_framebuffer = [0];
+        #[expect(unsafe_code)]
+        unsafe {
+            self.gleam_gl
+                .get_integer_v(gl::FRAMEBUFFER_BINDING, &mut bound_framebuffer);
+        }
+        if bound_framebuffer[0].max(0) as u32 == self.framebuffer_id {
+            self.gleam_gl.bind_framebuffer(
+                gl::FRAMEBUFFER,
+                self.previous_framebuffer.get(),
+            );
+        }
+
         self.gleam_gl.delete_textures(&[self.texture_id]);
         self.gleam_gl.delete_renderbuffers(&[self.renderbuffer_id]);
         self.gleam_gl.delete_framebuffers(&[self.framebuffer_id]);
