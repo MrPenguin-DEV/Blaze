@@ -216,11 +216,11 @@ impl AppState {
                 self.active_tab.set(index.min(tabs.len() - 1));
             } else if let Some(tab) = tabs.first_mut() {
                 if tab.pinned { self.window.set_title("Pinned tab cannot be closed — Blaze"); return; }
-                tab.title = "New Tab".to_owned();
-                tab.url = "about:blank".to_owned();
+                tab.title = "Google".to_owned();
+                tab.url = "https://www.google.com/".to_owned();
                 if let Some(view) = self.webviews.borrow().first().and_then(Option::as_ref) {
                     view.clear_session_history();
-                    view.load(Url::parse("about:blank").expect("about:blank is valid"));
+                    view.load(Url::parse("https://www.google.com/").expect("Google URL is valid"));
                 }
             }
         }
