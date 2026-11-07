@@ -311,6 +311,12 @@ impl BlazeApp {
             }
         }
         if open_tab {
+            #[cfg(feature = "servo-browser")]
+            if let Some(browser) = self.servo_browser.as_ref() {
+                if let Some(Some(old_page)) = self.servo_pages.get(self.active_tab) {
+                    browser.deactivate(old_page);
+                }
+            }
             let id = self.tab_policy.open("https://www.google.com/");
             self.tabs.push(BrowserTab {
                 id,
@@ -342,14 +348,22 @@ impl BlazeApp {
             }
             if let Some(index) = selected {
                 #[cfg(feature = "servo-browser")]
-                if let (Some(browser), Some(Some(old_page))) = (&self.servo_browser, self.servo_pages.get(self.active_tab)) {
-                    browser.deactivate(old_page);
+                if let Some(browser) = self.servo_browser.as_ref() {
+                    if let Some(Some(old_page)) = self.servo_pages.get(self.active_tab) {
+                        browser.deactivate(old_page);
+                    }
                 }
                 self.active_tab = index;
                 self.address = self.tabs[index].url.clone();
                 self.browser_focused = false;
                 self.tab_policy.select(self.tabs[index].id);
                 self.tab_policy.enforce_live_limit();
+                #[cfg(feature = "servo-browser")]
+                if let Some(browser) = self.servo_browser.as_ref() {
+                    if let Some(Some(page)) = self.servo_pages.get(self.active_tab) {
+                        browser.activate(page);
+                    }
+                }
             }
         });
 
@@ -378,15 +392,21 @@ impl BlazeApp {
                 self.servo_pages.resize_with(self.tabs.len(), || None);
             }
             if let Some(browser) = self.servo_browser.as_ref() {
+                let mut created_page = false;
                 if self.servo_pages[self.active_tab].is_none() {
                     match browser.create_page(&self.tabs[self.active_tab].url, scale) {
-                        Ok(page) => self.servo_pages[self.active_tab] = Some(page),
+                        Ok(page) => {
+                            self.servo_pages[self.active_tab] = Some(page);
+                            created_page = true;
+                        }
                         Err(error) => self.browser_status = format!("Could not create browser tab: {error}"),
                     }
                 }
 
                 if let Some(page) = self.servo_pages[self.active_tab].as_ref() {
-                    browser.activate(page);
+                    if created_page {
+                        browser.activate(page);
+                    }
                     let events = ui.input(|input| input.raw.events.clone());
                     for event in events {
                         match event {
