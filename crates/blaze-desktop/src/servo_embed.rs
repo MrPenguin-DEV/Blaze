@@ -112,6 +112,7 @@ impl ServoBrowser {
         if page.last_size.get() != size {
             page.webview.resize(size);
             page.last_size.set(size);
+            page.needs_paint.set(true);
         }
 
         self.servo.spin_event_loop();
