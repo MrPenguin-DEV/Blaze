@@ -29,7 +29,7 @@ The Servo 0.7 browser engine is an optional feature linked into the same
 `blaze` executable as the eframe/egui workspace shell. Build it with:
 
 ```sh
-cargo build --release -p blaze-desktop --features servo-host --bin blaze
+cargo build --release -p blaze-desktop --features servo-browser --bin blaze
 ```
 
 Launch the shell:
@@ -41,7 +41,7 @@ Launch the shell:
 Launch the browser mode directly:
 
 ```sh
-./target/release/blaze --servo-host https://example.com
+./target/release/blaze --servo-browser https://example.com
 ```
 
 The shell's **Open in Servo** action launches the browser mode from that same
@@ -125,5 +125,5 @@ For the optional Linux media backend, see [VIDEO_ACCELERATION.md](VIDEO_ACCELERA
 The browser is bundled as a mode of the same executable. To launch it directly:
 
 ```sh
-cargo run -p blaze-desktop --features servo-host --bin blaze -- --servo-host https://example.com
+cargo run -p blaze-desktop --features servo-browser --bin blaze -- --servo-browser https://example.com
 ```
