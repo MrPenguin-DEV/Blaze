@@ -94,6 +94,14 @@ pub struct BlazeApp {
     profile_passphrase: String,
     profile_status: String,
     toast: String,
+    #[cfg(feature = "servo-browser")]
+    servo_browser: Option<crate::servo_embed::ServoBrowser>,
+    #[cfg(feature = "servo-browser")]
+    servo_pages: Vec<Option<crate::servo_embed::ServoPage>>,
+    #[cfg(feature = "servo-browser")]
+    servo_texture: Option<egui::TextureHandle>,
+    #[cfg(feature = "servo-browser")]
+    browser_focused: bool,
 }
 
 impl Default for BlazeApp {
@@ -153,6 +161,14 @@ impl Default for BlazeApp {
             profile_passphrase: String::new(),
             profile_status: "Profile is in memory only until you save it encrypted.".into(),
             toast: String::new(),
+            #[cfg(feature = "servo-browser")]
+            servo_browser: None,
+            #[cfg(feature = "servo-browser")]
+            servo_pages: vec![None],
+            #[cfg(feature = "servo-browser")]
+            servo_texture: None,
+            #[cfg(feature = "servo-browser")]
+            browser_focused: false,
         }
     }
 }
@@ -230,12 +246,12 @@ impl BlazeApp {
         ui.add_space(20.0);
         ui.separator();
         ui.label(egui::RichText::new("STATUS").small().weak().strong());
-        ui.label(egui::RichText::new("Engine: Servo host is optional").small());
+        ui.label(egui::RichText::new("Engine: embedded Servo").small());
         ui.label(egui::RichText::new("Vault: password locked").small());
         ui.label(egui::RichText::new("Profile: encrypted local").small());
         ui.add_space(12.0);
         ui.label(
-            egui::RichText::new("Browser pages render in the optional Servo window; media decode and calling depend on platform integration.")
+            egui::RichText::new("Web pages render inside this Blaze window.")
                 .small()
                 .weak(),
         );
@@ -243,59 +259,71 @@ impl BlazeApp {
 
     fn browser_panel(&mut self, ui: &mut egui::Ui) {
         ui.heading("Browser");
-        ui.label("The main shell can launch the standalone Servo renderer when built with the optional servo-host feature.");
-        ui.add_space(10.0);
+        ui.add_space(6.0);
 
         let mut navigate = false;
+        let mut go_back = false;
+        let mut go_forward = false;
+        let mut reload = false;
+        let mut open_tab = false;
         ui.horizontal(|ui| {
-            if ui.button("←").on_hover_text("Back (engine pending)").clicked() {
-                self.browser_status = "Back navigation requires the browser engine.".into();
-            }
-            if ui.button("→").on_hover_text("Forward (engine pending)").clicked() {
-                self.browser_status = "Forward navigation requires the browser engine.".into();
-            }
-            if ui.button("↻").on_hover_text("Reload (engine pending)").clicked() {
-                self.browser_status = "Reload requires the browser engine.".into();
-            }
-            let input = ui.add(
+            go_back = ui.button("←").on_hover_text("Back").clicked();
+            go_forward = ui.button("→").on_hover_text("Forward").clicked();
+            reload = ui.button("↻").on_hover_text("Reload").clicked();
+            let address = ui.add(
                 egui::TextEdit::singleline(&mut self.address)
-                    .hint_text("Search or enter an address")
+                    .hint_text("Search Google or enter a URL")
                     .desired_width(f32::INFINITY),
             );
-            if input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            if address.clicked() || address.gained_focus() {
+                self.browser_focused = false;
+            }
+            if address.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 navigate = true;
             }
             if ui.button("Go").clicked() {
                 navigate = true;
-            }
-            #[cfg(feature = "servo-host")]
-            if ui.button("Open in Servo").clicked() {
-                match launch_servo(&self.address, &self.profile, &self.tabs, self.active_tab, &self.tab_policy) {
-                    Ok(()) => self.browser_status = "Opened the page in Blaze's full Servo browser window (same executable).".into(),
-                    Err(error) => self.browser_status = format!("Could not launch Servo: {error}"),
-                }
-            }
-            #[cfg(not(feature = "servo-host"))]
-            if ui.button("Servo host instructions").clicked() {
-                self.browser_status = "Build both binaries with: cargo build -p blaze-desktop --features servo-host --bins".into();
             }
             if ui.button("☆").on_hover_text("Bookmark current page").clicked() {
                 let title = self.tabs.get(self.active_tab).map(|tab| tab.title.clone()).unwrap_or_else(|| "Bookmark".into());
                 self.profile.add_bookmark(title, self.address.clone());
                 self.toast = "Bookmark added to this profile.".into();
             }
-            if ui.button("+").on_hover_text("New tab").clicked() {
-                let id = self.tab_policy.open("https://www.google.com/");
-                self.tabs.push(BrowserTab {
-                    id,
-                    title: "Google".into(),
-                    url: "https://www.google.com/".into(),
-                });
-                self.active_tab = self.tabs.len() - 1;
-                self.address = "https://www.google.com/".into();
-                self.tab_policy.enforce_live_limit();
-            }
+            open_tab = ui.button("+").on_hover_text("New isolated tab").clicked();
         });
+
+        if go_back {
+            #[cfg(feature = "servo-browser")]
+            if let (Some(browser), Some(Some(page))) = (&self.servo_browser, self.servo_pages.get(self.active_tab)) {
+                browser.back(page);
+            }
+        }
+        if go_forward {
+            #[cfg(feature = "servo-browser")]
+            if let (Some(browser), Some(Some(page))) = (&self.servo_browser, self.servo_pages.get(self.active_tab)) {
+                browser.forward(page);
+            }
+        }
+        if reload {
+            #[cfg(feature = "servo-browser")]
+            if let (Some(browser), Some(Some(page))) = (&self.servo_browser, self.servo_pages.get(self.active_tab)) {
+                browser.reload(page);
+            }
+        }
+        if open_tab {
+            let id = self.tab_policy.open("https://www.google.com/");
+            self.tabs.push(BrowserTab {
+                id,
+                title: "Google".into(),
+                url: "https://www.google.com/".into(),
+            });
+            #[cfg(feature = "servo-browser")]
+            self.servo_pages.push(None);
+            self.active_tab = self.tabs.len() - 1;
+            self.address = "https://www.google.com/".into();
+            self.browser_focused = false;
+            self.tab_policy.enforce_live_limit();
+        }
 
         if navigate {
             self.navigate();
@@ -307,47 +335,149 @@ impl BlazeApp {
                 let paused = self.tab_policy.entries().iter()
                     .find(|entry| entry.id() == tab.id)
                     .is_some_and(|entry| entry.activity == blaze_core::memory::TabActivity::Suspended);
-                let label = if paused {
-                    format!("◌ {}", tab.title)
-                } else {
-                    tab.title.clone()
-                };
+                let label = if paused { format!("◌ {}", tab.title) } else { tab.title.clone() };
                 if ui.selectable_label(self.active_tab == index, label).clicked() {
                     selected = Some(index);
                 }
             }
             if let Some(index) = selected {
+                #[cfg(feature = "servo-browser")]
+                if let (Some(browser), Some(Some(old_page))) = (&self.servo_browser, self.servo_pages.get(self.active_tab)) {
+                    browser.deactivate(old_page);
+                }
                 self.active_tab = index;
                 self.address = self.tabs[index].url.clone();
+                self.browser_focused = false;
                 self.tab_policy.select(self.tabs[index].id);
                 self.tab_policy.enforce_live_limit();
             }
         });
 
-        ui.add_space(16.0);
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.set_min_height(330.0);
-            ui.vertical_centered(|ui| {
-                ui.add_space(62.0);
-                ui.heading(egui::RichText::new("BLAZE").size(36.0).strong());
-                ui.label("Fast by design. Private by default.");
-                ui.add_space(18.0);
-                ui.label(egui::RichText::new(&self.browser_status).color(egui::Color32::YELLOW));
-                ui.add_space(12.0);
-                ui.label("Open a full page renderer with the Open in Servo action. The renderer is a second Blaze window launched from this same executable.");
-                ui.label("Browser rendering still uses Servo's separate OpenGL context; the eframe/wgpu shell does not yet embed the page surface inline.");
-            });
-        });
+        #[cfg(feature = "servo-browser")]
+        {
+            let scale = ui.ctx().pixels_per_point();
+            let width = ui.available_width().max(1.0);
+            let height = ui.available_height().max(260.0);
+            let display_size = egui::vec2(width, height);
+            let (rect, response) = ui.allocate_exact_size(display_size, egui::Sense::click_and_drag());
+            if response.clicked() {
+                self.browser_focused = true;
+                response.request_focus();
+            }
 
-        ui.add_space(14.0);
+            if self.servo_browser.is_none() {
+                match crate::servo_embed::ServoBrowser::new(
+                    ui.ctx().clone(),
+                    winit::dpi::PhysicalSize::new((width * scale) as u32, (height * scale) as u32),
+                ) {
+                    Ok(browser) => self.servo_browser = Some(browser),
+                    Err(error) => self.browser_status = format!("Could not initialize Servo: {error}"),
+                }
+            }
+            if self.servo_pages.len() < self.tabs.len() {
+                self.servo_pages.resize_with(self.tabs.len(), || None);
+            }
+            if let Some(browser) = self.servo_browser.as_ref() {
+                if self.servo_pages[self.active_tab].is_none() {
+                    match browser.create_page(&self.tabs[self.active_tab].url, scale) {
+                        Ok(page) => self.servo_pages[self.active_tab] = Some(page),
+                        Err(error) => self.browser_status = format!("Could not create browser tab: {error}"),
+                    }
+                }
+
+                if let Some(page) = self.servo_pages[self.active_tab].as_ref() {
+                    browser.activate(page);
+                    let events = ui.input(|input| input.raw.events.clone());
+                    for event in events {
+                        match event {
+                            egui::Event::PointerMoved(position) => {
+                                if rect.contains(position) {
+                                    browser.forward_mouse_move(page, (position.x - rect.left()) * scale, (position.y - rect.top()) * scale);
+                                }
+                            }
+                            egui::Event::PointerButton { pos, button, pressed, .. } => {
+                                if rect.contains(pos) || (!pressed && self.browser_focused) {
+                                    browser.forward_mouse_button(page, (pos.x - rect.left()) * scale, (pos.y - rect.top()) * scale, button, pressed);
+                                }
+                            }
+                            egui::Event::MouseWheel { delta, .. } if response.hovered() => {
+                                let pointer = ui.input(|input| input.pointer.hover_pos()).unwrap_or(rect.center());
+                                browser.forward_wheel(page, (pointer.x - rect.left()) * scale, (pointer.y - rect.top()) * scale, delta.x * scale, delta.y * scale);
+                            }
+                            egui::Event::Key { key, pressed, modifiers, .. } if self.browser_focused => {
+                                browser.forward_key(page, crate::servo_embed::ServoBrowser::key_from_egui(key), pressed, modifiers);
+                            }
+                            egui::Event::Text(text) if self.browser_focused => {
+                                for character in text.chars() {
+                                    let key = servo::Key::Character(character.to_string());
+                                    browser.forward_key(page, key.clone(), true, ui.input(|input| input.modifiers));
+                                    browser.forward_key(page, key, false, ui.input(|input| input.modifiers));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let physical_size = winit::dpi::PhysicalSize::new(
+                        (rect.width() * scale).max(1.0) as u32,
+                        (rect.height() * scale).max(1.0) as u32,
+                    );
+                    match browser.render(page, physical_size) {
+                        Ok(Some(image)) => {
+                            if let Some(texture) = self.servo_texture.as_mut() {
+                                texture.set(image, egui::TextureOptions::LINEAR);
+                            } else {
+                                self.servo_texture = Some(ui.ctx().load_texture(
+                                    "blaze-servo-browser-page",
+                                    image,
+                                    egui::TextureOptions::LINEAR,
+                                ));
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => self.browser_status = format!("Browser rendering error: {error}"),
+                    }
+
+                    self.address = browser.current_url(page);
+                    self.tabs[self.active_tab].url = self.address.clone();
+                    self.tabs[self.active_tab].title = browser.title(page);
+                }
+            }
+
+            if let Some(texture) = self.servo_texture.as_ref() {
+                ui.painter().image(
+                    texture.id(),
+                    rect,
+                    egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+            } else {
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    if self.browser_status.is_empty() { "Starting Servo…" } else { &self.browser_status },
+                    egui::FontId::proportional(14.0),
+                    ui.visuals().text_color(),
+                );
+            }
+        }
+
+        #[cfg(not(feature = "servo-browser"))]
+        {
+            ui.label("Build Blaze with --features servo-browser to enable the embedded Servo engine.");
+        }
+
+        ui.add_space(8.0);
         ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new("Tab policy").strong());
+            ui.label(egui::RichText::new("Tabs").strong());
             ui.label(format!(
-                "{} live / {} open · {} MiB soft memory budget · maximum 8 live tabs",
-                self.tab_policy.live_count(),
-                self.tab_policy.entries().len(),
+                "{} open · {} MiB soft memory budget",
+                self.tabs.len(),
                 self.tab_policy.budget().soft_limit_mib()
             ));
+            if !self.browser_status.is_empty() {
+                ui.label(&self.browser_status);
+            }
         });
     }
 
@@ -363,9 +493,13 @@ impl BlazeApp {
                     self.tab_policy.set_url(tab.id, normalized.clone());
                 }
                 self.profile.record_visit(title, normalized.clone(), unix_now(), 500);
-                self.browser_status = format!(
-                    "Address accepted: {normalized}. Use the separate blaze-servo host to render live pages."
-                );
+                #[cfg(feature = "servo-browser")]
+                if let (Some(browser), Some(Some(page))) = (&self.servo_browser, self.servo_pages.get(self.active_tab)) {
+                    if let Err(error) = browser.navigate(page, &normalized) {
+                        self.browser_status = format!("Navigation failed: {error}");
+                    }
+                }
+                self.browser_status = format!("Navigated to {normalized}");
             }
             Err(error) => {
                 self.browser_status = format!("Navigation rejected: {error}");
@@ -1305,8 +1439,10 @@ impl BlazeApp {
                         let _ = self.tab_policy.enforce_live_limit();
                     }
                 }
+                #[cfg(feature = "servo-browser")]
+                { self.servo_pages = std::iter::repeat_with(|| None).take(self.tabs.len()).collect(); }
                 self.profile_status = format!(
-                    "Profile authenticated and unlocked. Restored {} tab entries; pages must be opened in the Servo host.",
+                    "Profile authenticated and unlocked. Restored {} tabs.",
                     self.tabs.len()
                 );
                 self.toast = "Browser profile unlocked.".into();
@@ -1363,50 +1499,6 @@ impl BlazeApp {
             None => self.toast = "Invalid file name.".into(),
         }
     }
-}
-
-#[cfg(feature = "servo-host")]
-fn launch_servo(
-    address: &str,
-    profile: &BrowserProfile,
-    tabs: &[BrowserTab],
-    active_tab: usize,
-    tab_policy: &TabManager,
-) -> Result<(), String> {
-    let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    let blaze_exe = current_exe;
-
-    // Pass only the active page, minimal tab restore metadata, and site
-    // permission snapshot. Never pass profile credentials or browsing history.
-    let session_tabs: Vec<SessionTab> = tabs
-        .iter()
-        .map(|tab| {
-            let pinned = tab_policy
-                .entries()
-                .iter()
-                .find(|entry| entry.id() == tab.id)
-                .is_some_and(|entry| entry.snapshot.pinned);
-            SessionTab {
-                title: tab.title.clone(),
-                url: tab.url.clone(),
-                pinned,
-            }
-        })
-        .collect();
-    let session_snapshot = serde_json::to_string(&session_tabs)
-        .map_err(|error| format!("Could not serialize tab metadata: {error}"))?;
-    let permission_snapshot = serde_json::to_string(&profile.permissions)
-        .map_err(|error| format!("Could not serialize site permissions: {error}"))?;
-
-    std::process::Command::new(&blaze_exe)
-        .arg("--servo-host")
-        .arg(address)
-        .env("BLAZE_SITE_PERMISSIONS", permission_snapshot)
-        .env("BLAZE_SESSION_TABS", session_snapshot)
-        .env("BLAZE_ACTIVE_TAB", active_tab.to_string())
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("{} ({error}). Rebuild Blaze with --features servo-host.", blaze_exe.display()))
 }
 
 fn spreadsheet_column_name(mut index: usize) -> String {
