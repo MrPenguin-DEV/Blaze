@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use blaze_browser::normalize_address;
 use blaze_profile::{PermissionDecision, PermissionKind, SessionTab, SitePermission};
-use embedder_traits::EventLoopWaker;
+use embedder_traits::{EventLoopWaker, RefreshDriver};
 use euclid::Scale;
 use servo::{
     NavigationRequest, PermissionRequest,
@@ -90,6 +90,7 @@ struct AppState {
     window: Window,
     servo: Servo,
     rendering_context: Rc<WindowRenderingContext>,
+    refresh_driver: Rc<VsyncRefreshDriver>,
     webviews: RefCell<Vec<Option<WebView>>>,
     last_used: RefCell<Vec<u64>>,
     focus_tick: Cell<u64>,
@@ -503,9 +504,15 @@ impl ApplicationHandler<WakerEvent> for App {
         let window_handle = window
             .window_handle()
             .expect("Failed to get window handle");
+        let refresh_driver = Rc::new(VsyncRefreshDriver::new(event_loop));
         let rendering_context = Rc::new(
-            WindowRenderingContext::new(display_handle, window_handle, window.inner_size())
-                .expect("Could not create Servo rendering context"),
+            WindowRenderingContext::new_with_refresh_driver(
+                display_handle,
+                window_handle,
+                window.inner_size(),
+                refresh_driver.clone(),
+            )
+            .expect("Could not create Servo rendering context"),
         );
         rendering_context
             .make_current()
@@ -520,6 +527,7 @@ impl ApplicationHandler<WakerEvent> for App {
             window,
             servo,
             rendering_context,
+            refresh_driver,
             webviews: RefCell::new(Vec::new()),
             last_used: RefCell::new(Vec::new()),
             focus_tick: Cell::new(0),
@@ -573,9 +581,12 @@ impl ApplicationHandler<WakerEvent> for App {
         *self = Self::Running(state);
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: WakerEvent) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: WakerEvent) {
         if let Self::Running(state) = self {
-            state.servo.spin_event_loop();
+            match event {
+                WakerEvent::Wake => state.servo.spin_event_loop(),
+                WakerEvent::RefreshRequested => state.window.request_redraw(),
+            }
         }
     }
 
@@ -592,6 +603,8 @@ impl ApplicationHandler<WakerEvent> for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
+                state.refresh_driver.notify_vsync();
+                state.servo.spin_event_loop();
                 if let Some(webview) = state.active_webview() {
                     webview.paint();
                     state.rendering_context.present();
@@ -730,7 +743,48 @@ fn to_servo_key(key: &WinitKey) -> Option<Key> {
 struct Waker(EventLoopProxy<WakerEvent>);
 
 #[derive(Debug)]
-struct WakerEvent;
+enum WakerEvent {
+    Wake,
+    RefreshRequested,
+}
+
+struct VsyncRefreshDriver {
+    start_frame_callbacks: RefCell<Vec<Box<dyn Fn() + Send + 'static>>>,
+    event_loop_proxy: EventLoopProxy<WakerEvent>,
+}
+
+impl VsyncRefreshDriver {
+    fn new(event_loop: &EventLoop<WakerEvent>) -> Self {
+        Self {
+            start_frame_callbacks: RefCell::new(Vec::new()),
+            event_loop_proxy: event_loop.create_proxy(),
+        }
+    }
+
+    fn notify_vsync(&self) {
+        let callbacks = self.start_frame_callbacks.borrow_mut().drain(..).collect::<Vec<_>>();
+        for callback in callbacks {
+            callback();
+        }
+    }
+}
+
+impl RefreshDriver for VsyncRefreshDriver {
+    fn observe_next_frame(&self, callback: Box<dyn Fn() + Send + 'static>) {
+        let was_empty = {
+            let mut callbacks = self.start_frame_callbacks.borrow_mut();
+            let was_empty = callbacks.is_empty();
+            callbacks.push(callback);
+            was_empty
+        };
+
+        if was_empty {
+            if let Err(error) = self.event_loop_proxy.send_event(WakerEvent::RefreshRequested) {
+                warn!(?error, "Failed to request a Servo refresh frame");
+            }
+        }
+    }
+}
 
 impl Waker {
     fn new(event_loop: &EventLoop<WakerEvent>) -> Self {
@@ -744,7 +798,7 @@ impl EventLoopWaker for Waker {
     }
 
     fn wake(&self) {
-        if let Err(error) = self.0.send_event(WakerEvent) {
+        if let Err(error) = self.0.send_event(WakerEvent::Wake) {
             warn!(?error, "Failed to wake Blaze Servo host event loop");
         }
     }
