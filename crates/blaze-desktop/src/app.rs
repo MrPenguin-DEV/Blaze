@@ -99,7 +99,7 @@ pub struct BlazeApp {
     #[cfg(feature = "servo-browser")]
     servo_pages: Vec<Option<crate::servo_embed::ServoPage>>,
     #[cfg(feature = "servo-browser")]
-    servo_texture: Option<egui::TextureHandle>,
+    servo_textures: Vec<Option<egui::TextureHandle>>, 
     browser_focused: bool,
 }
 
@@ -165,7 +165,7 @@ impl Default for BlazeApp {
             #[cfg(feature = "servo-browser")]
             servo_pages: vec![None],
             #[cfg(feature = "servo-browser")]
-            servo_texture: None,
+            servo_textures: vec![None],
             browser_focused: false,
         }
     }
@@ -357,6 +357,7 @@ impl BlazeApp {
             });
             #[cfg(feature = "servo-browser")]
             self.servo_pages.push(None);
+            self.servo_textures.push(None);
             self.active_tab = self.tabs.len() - 1;
             self.address = "https://www.google.com/".into();
             self.browser_focused = false;
@@ -426,6 +427,9 @@ impl BlazeApp {
             if self.servo_pages.len() < self.tabs.len() {
                 self.servo_pages.resize_with(self.tabs.len(), || None);
             }
+            if self.servo_textures.len() < self.tabs.len() {
+                self.servo_textures.resize_with(self.tabs.len(), || None);
+            }
             if let Some(browser) = self.servo_browser.as_ref() {
                 let mut created_page = false;
                 if self.servo_pages[self.active_tab].is_none() {
@@ -481,11 +485,11 @@ impl BlazeApp {
                     );
                     match browser.render(page, physical_size) {
                         Ok(Some(image)) => {
-                            if let Some(texture) = self.servo_texture.as_mut() {
+                            if let Some(texture) = self.servo_textures[self.active_tab].as_mut() {
                                 texture.set(image, egui::TextureOptions::LINEAR);
                             } else {
-                                self.servo_texture = Some(ui.ctx().load_texture(
-                                    "blaze-servo-page",
+                                self.servo_textures[self.active_tab] = Some(ui.ctx().load_texture(
+                                    format!("blaze-servo-page-{}", self.tabs[self.active_tab].id),
                                     image,
                                     egui::TextureOptions::LINEAR,
                                 ));
@@ -503,7 +507,7 @@ impl BlazeApp {
                 }
             }
 
-            if let Some(texture) = self.servo_texture.as_ref() {
+            if let Some(texture) = self.servo_textures.get(self.active_tab).and_then(Option::as_ref) {
                 ui.painter().image(
                     texture.id(),
                     rect,
@@ -571,6 +575,7 @@ impl BlazeApp {
         self.tabs.remove(index);
         #[cfg(feature = "servo-browser")]
         self.servo_pages.remove(index);
+        self.servo_textures.remove(index);
 
         if index < self.active_tab {
             self.active_tab -= 1;
@@ -595,6 +600,7 @@ impl BlazeApp {
             if let Some(index) = self.tabs.iter().position(|tab| tab.id == *id) {
                 if index != self.active_tab {
                     self.servo_pages[index] = None;
+                    self.servo_textures[index] = None;
                 }
             }
         }
