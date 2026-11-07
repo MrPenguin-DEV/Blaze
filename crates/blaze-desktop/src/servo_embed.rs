@@ -75,6 +75,18 @@ impl EguiGlRenderingContext {
         let size = PhysicalSize::new(size.width.max(1), size.height.max(1));
         let gleam_gl = Self::load_gleam_api(get_proc_address);
 
+        // Page surfaces are created while egui is drawing. Restore every
+        // binding we touch so creating a tab cannot redirect the desktop frame.
+        let mut previous_framebuffer = [0];
+        let mut previous_texture = [0];
+        let mut previous_renderbuffer = [0];
+        #[expect(unsafe_code)]
+        unsafe {
+            gleam_gl.get_integer_v(gl::FRAMEBUFFER_BINDING, &mut previous_framebuffer);
+            gleam_gl.get_integer_v(gl::TEXTURE_BINDING_2D, &mut previous_texture);
+            gleam_gl.get_integer_v(gl::RENDERBUFFER_BINDING, &mut previous_renderbuffer);
+        }
+
         let framebuffer_ids = gleam_gl.gen_framebuffers(1);
         let texture_ids = gleam_gl.gen_textures(1);
         let renderbuffer_ids = gleam_gl.gen_renderbuffers(1);
@@ -123,7 +135,9 @@ impl EguiGlRenderingContext {
         gleam_gl.bind_texture(gl::TEXTURE_2D, 0);
 
         let status = gleam_gl.check_frame_buffer_status(gl::FRAMEBUFFER);
-        gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, previous_framebuffer[0].max(0) as u32);
+        gleam_gl.bind_texture(gl::TEXTURE_2D, previous_texture[0].max(0) as u32);
+        gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, previous_renderbuffer[0].max(0) as u32);
         if status != gl::FRAMEBUFFER_COMPLETE {
             gleam_gl.delete_textures(&[texture_id]);
             gleam_gl.delete_renderbuffers(&[renderbuffer_id]);
@@ -215,6 +229,13 @@ impl RenderingContext for EguiGlRenderingContext {
             return;
         }
 
+        let mut previous_texture = [0];
+        let mut previous_renderbuffer = [0];
+        #[expect(unsafe_code)]
+        unsafe {
+            self.gleam_gl.get_integer_v(gl::TEXTURE_BINDING_2D, &mut previous_texture);
+            self.gleam_gl.get_integer_v(gl::RENDERBUFFER_BINDING, &mut previous_renderbuffer);
+        }
         self.gleam_gl.bind_texture(gl::TEXTURE_2D, self.texture_id);
         self.gleam_gl.tex_image_2d(
             gl::TEXTURE_2D,
@@ -227,7 +248,7 @@ impl RenderingContext for EguiGlRenderingContext {
             gl::UNSIGNED_BYTE,
             None,
         );
-        self.gleam_gl.bind_texture(gl::TEXTURE_2D, 0);
+        self.gleam_gl.bind_texture(gl::TEXTURE_2D, previous_texture[0].max(0) as u32);
         self.gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, self.renderbuffer_id);
         self.gleam_gl.renderbuffer_storage(
             gl::RENDERBUFFER,
@@ -235,7 +256,7 @@ impl RenderingContext for EguiGlRenderingContext {
             size.width as gl::GLsizei,
             size.height as gl::GLsizei,
         );
-        self.gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, 0);
+        self.gleam_gl.bind_renderbuffer(gl::RENDERBUFFER, previous_renderbuffer[0].max(0) as u32);
         self.size.set(size);
     }
 
