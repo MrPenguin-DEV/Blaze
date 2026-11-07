@@ -6,7 +6,7 @@ The desktop application is written in Rust and uses eframe/egui with its wgpu re
 
 ## Browser engine boundary
 
-Servo is the leading engine candidate. The current adapter contract normalizes user navigation and defines the boundary where engine navigation, lifecycle, and capability reporting belong. Servo is linked into the optional browser mode of the same Blaze executable. Each tab owns a WebView; the host normally keeps two warm views (active and one recently used unpinned view); pinned background views are exempt and can raise the count, while other unpinned views are dropped and restoring them from URL metadata. This gives quick return to a warm tab and bounds renderer count, but dropping a view loses its in-memory page state. The shell and Servo mode are one executable, but the browser still opens in a second native window/context rather than inside the main wgpu UI.
+Servo is embedded in the Browser panel of the main Blaze window. Each tab owns a WebView with independent navigation history; all tabs share one Servo engine and storage profile, so cookies and site storage are not partitioned per tab. Suspended background WebViews are dropped and restored from URL metadata, which loses their in-memory page state. Servo renders through a software offscreen context; frames are read back to RGBA and uploaded to egui/wgpu, so the current path is not zero-copy and can affect performance.
 
 Servo's embedding sequence includes:
 1. An EventLoopWaker that schedules Servo event-loop work.
@@ -20,7 +20,7 @@ Servo's embedding interface is still a host-integration project, not a drop-in e
 ## Rendering and video
 
 - The shell uses wgpu for its own UI rendering.
-- Web content rendering must be negotiated with the selected engine's supported rendering context. Do not assume egui's wgpu textures can directly consume Servo output; the current Servo host is still a separate window/context.
+- Web content rendering must be negotiated with the selected engine's supported rendering context. The current integration uses Servo's software offscreen context and an RGBA CPU readback uploaded to egui/wgpu. A zero-copy GPU bridge remains future work.
 - Prefer platform hardware video decode (VA-API, NVDEC, AMF, Vulkan Video, V4L2, VideoToolbox or the matching platform API) subject to the Servo media backend and installed plugins.
 - Keep decoded frames in GPU-friendly surfaces where possible to avoid copies.
 - Keep decoder queues bounded and avoid redundant GPU-to-CPU frame copies. The current host does not promise that off-screen media/timers are paused.
