@@ -437,13 +437,15 @@ impl BlazeApp {
                                 browser.forward_wheel(page, (pointer.x - rect.left()) * scale, (pointer.y - rect.top()) * scale, delta.x * scale, delta.y * scale);
                             }
                             egui::Event::Key { key, pressed, modifiers, .. } if self.browser_focused => {
-                                browser.forward_key(page, crate::servo_embed::ServoBrowser::key_from_egui(key), pressed, modifiers);
+                                if let Some(key) = crate::servo_embed::ServoBrowser::key_from_egui(key) {
+                                    browser.forward_key(page, key, pressed, modifiers);
+                                }
                             }
                             egui::Event::Text(text) if self.browser_focused => {
+                                let modifiers = ui.input(|input| input.modifiers);
                                 for character in text.chars() {
-                                    let key = servo::Key::Character(character.to_string());
-                                    browser.forward_key(page, key.clone(), true, ui.input(|input| input.modifiers));
-                                    browser.forward_key(page, key, false, ui.input(|input| input.modifiers));
+                                    browser.forward_key(page, servo::Key::Character(character.to_string()), true, modifiers);
+                                    browser.forward_key(page, servo::Key::Character(character.to_string()), false, modifiers);
                                 }
                             }
                             _ => {}
