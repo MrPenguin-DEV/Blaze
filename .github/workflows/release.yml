@@ -60,7 +60,7 @@ jobs:
         run: cargo build --manifest-path examples/wasm-webapp/Cargo.toml --target wasm32-unknown-unknown --release
 
       - name: Build unified Blaze executable
-        run: cargo build --release -p blaze-desktop --features servo-host --bin blaze
+        run: cargo build --release -p blaze-desktop --features servo-browser --bin blaze
 
       - name: Package beta
         run: |
