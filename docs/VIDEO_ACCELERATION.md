@@ -6,7 +6,7 @@ Blaze does not use WebAssembly to decode or render YouTube video. A Wasm guest c
 2. Servo's optional GStreamer media backend negotiates a decoder for the stream codec.
 3. A matching driver/plugin performs hardware decoding (where supported).
 4. Decoded frames stay in GPU-compatible memory as long as possible.
-5. Servo/WebRender composites the page; the Blaze shell separately uses eframe/wgpu for its native controls.
+5. Servo/WebRender composites the page into its offscreen software rendering context; Blaze reads the frame back to the CPU and uploads it into the eframe/wgpu UI texture. This copy path is not zero-copy and may bottleneck video.
 
 GStreamer documents hardware decoding through VA-API, NVIDIA NVDEC, AMD AMF, Vulkan Video, VideoToolbox and V4L2. It also explains why copying decoded frames from GPU memory to system memory can remove much of the performance benefit. Hardware decoder availability and automatic selection depend on the device, driver, plugin and pipeline ranks: https://gstreamer.freedesktop.org/documentation/tutorials/playback/hardware-accelerated-video-decoding.html
 
