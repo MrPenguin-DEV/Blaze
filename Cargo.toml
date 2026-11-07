@@ -36,7 +36,10 @@ office_oxide = "0.1.16"
 # Temporary upstream fix: epaint must flush Vello CPU glyph work when Servo
 # enables vello_cpu/multithreading. Remove after this fix is in a released egui.
 [patch.crates-io]
-epaint = { git = "https://github.com/Quackdoc/egui", rev = "11c32981caaafedee9ca171b13a91bc73fd71bf6" }
+# Keep epaint glyph rasterization single-threaded: Servo enables vello_cpu/multithreading
+# in this build, and the default glyph RenderContext otherwise inherits it.
+# Pinned to the regression fix in egui PR #8823 until it is released upstream.
+epaint = { git = "https://github.com/ahmedhosnypro/egui", rev = "0325bcc99f2e8762f970e9275a55340098152ed8" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
