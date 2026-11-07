@@ -84,13 +84,13 @@ impl ServoBrowser {
 
     pub fn activate(&self, page: &ServoPage) {
         page.webview.show();
-        page.webview.set_focused(true);
+        page.webview.focus();
         page.needs_paint.set(true);
         self.egui_context.request_repaint();
     }
 
     pub fn deactivate(&self, page: &ServoPage) {
-        page.webview.set_focused(false);
+        page.webview.blur();
         page.webview.hide();
     }
 
