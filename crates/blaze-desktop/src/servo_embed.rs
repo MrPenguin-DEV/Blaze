@@ -1,8 +1,8 @@
-//! Servo embedded directly into Blaze's existing eframe OpenGL context.
+//! Shared Servo engine and WebView lifecycle for the Blaze desktop shell.
 //!
-//! Servo renders into an FBO texture owned by the same GL context that eframe
-//! uses. The texture is registered with egui as a native GL texture, avoiding
-//! a GPU-to-CPU readback and a second upload for every browser frame.
+//! Each tab owns an independent offscreen surface. Completed frames are copied
+//! into egui-managed textures so browser rendering cannot leak GL objects into
+//! the desktop compositor.
 
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, c_void};
