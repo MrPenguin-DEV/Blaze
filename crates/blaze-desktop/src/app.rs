@@ -118,7 +118,7 @@ impl Default for BlazeApp {
             tab_policy,
             active_tab: 0,
             address: "https://www.google.com/".into(),
-            browser_status: "Browser engine not connected yet. The native shell is ready.".into(),
+            browser_status: "Starting embedded Servo browser…".into(),
             code_name: "scratch.rs".into(),
             code_source: "fn main() {\n    println!(\"Hello from Blaze!\");\n}\n".into(),
             wasm_path: "extension.wasm".into(),
@@ -328,44 +328,56 @@ impl BlazeApp {
             self.active_tab = self.tabs.len() - 1;
             self.address = "https://www.google.com/".into();
             self.browser_focused = false;
-            self.tab_policy.enforce_live_limit();
+            let suspended = self.tab_policy.enforce_live_limit();
+            #[cfg(feature = "servo-browser")]
+            self.drop_suspended_pages(&suspended);
         }
 
         if navigate {
             self.navigate();
         }
 
+        let mut selected_tab = None;
+        let mut closed_tab = None;
         ui.horizontal_wrapped(|ui| {
-            let mut selected = None;
             for (index, tab) in self.tabs.iter().enumerate() {
                 let paused = self.tab_policy.entries().iter()
                     .find(|entry| entry.id() == tab.id)
                     .is_some_and(|entry| entry.activity == blaze_core::memory::TabActivity::Suspended);
                 let label = if paused { format!("◌ {}", tab.title) } else { tab.title.clone() };
-                if ui.selectable_label(self.active_tab == index, label).clicked() {
-                    selected = Some(index);
-                }
-            }
-            if let Some(index) = selected {
-                #[cfg(feature = "servo-browser")]
-                if let Some(browser) = self.servo_browser.as_ref() {
-                    if let Some(Some(old_page)) = self.servo_pages.get(self.active_tab) {
-                        browser.deactivate(old_page);
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(self.active_tab == index, label).clicked() {
+                        selected_tab = Some(index);
                     }
-                }
-                self.active_tab = index;
-                self.address = self.tabs[index].url.clone();
-                self.browser_focused = false;
-                self.tab_policy.select(self.tabs[index].id);
-                self.tab_policy.enforce_live_limit();
-                #[cfg(feature = "servo-browser")]
-                if let Some(browser) = self.servo_browser.as_ref() {
-                    if let Some(Some(page)) = self.servo_pages.get(self.active_tab) {
-                        browser.activate(page);
+                    if ui.small_button("×").on_hover_text("Close tab").clicked() {
+                        closed_tab = Some(index);
                     }
-                }
+                });
             }
         });
+        if let Some(index) = closed_tab {
+            self.close_browser_tab(index);
+        } else if let Some(index) = selected_tab {
+            #[cfg(feature = "servo-browser")]
+            if let Some(browser) = self.servo_browser.as_ref() {
+                if let Some(Some(old_page)) = self.servo_pages.get(self.active_tab) {
+                    browser.deactivate(old_page);
+                }
+            }
+            self.active_tab = index;
+            self.address = self.tabs[index].url.clone();
+            self.browser_focused = false;
+            self.tab_policy.select(self.tabs[index].id);
+            let suspended = self.tab_policy.enforce_live_limit();
+            #[cfg(feature = "servo-browser")]
+            self.drop_suspended_pages(&suspended);
+            #[cfg(feature = "servo-browser")]
+            if let Some(browser) = self.servo_browser.as_ref() {
+                if let Some(Some(page)) = self.servo_pages.get(self.active_tab) {
+                    browser.activate(page);
+                }
+            }
+        }
 
         #[cfg(feature = "servo-browser")]
         {
@@ -499,6 +511,66 @@ impl BlazeApp {
                 ui.label(&self.browser_status);
             }
         });
+    }
+
+    fn close_browser_tab(&mut self, index: usize) {
+        if index >= self.tabs.len() {
+            return;
+        }
+
+        if self.tabs.len() == 1 {
+            let home = "https://www.google.com/";
+            self.tabs[0].title = "Google".into();
+            self.tabs[0].url = home.into();
+            self.address = home.into();
+            #[cfg(feature = "servo-browser")]
+            if let (Some(browser), Some(Some(page))) = (&self.servo_browser, self.servo_pages.first()) {
+                let _ = browser.navigate(page, home);
+            }
+            return;
+        }
+
+        #[cfg(feature = "servo-browser")]
+        if let Some(browser) = self.servo_browser.as_ref() {
+            if index == self.active_tab {
+                if let Some(Some(page)) = self.servo_pages.get(index) {
+                    browser.deactivate(page);
+                }
+            }
+        }
+
+        let id = self.tabs[index].id;
+        self.tab_policy.close(id);
+        self.tabs.remove(index);
+        #[cfg(feature = "servo-browser")]
+        self.servo_pages.remove(index);
+
+        if index < self.active_tab {
+            self.active_tab -= 1;
+        } else if index == self.active_tab {
+            self.active_tab = self.active_tab.min(self.tabs.len() - 1);
+        }
+
+        let selected = self.tabs[self.active_tab].clone();
+        self.address = selected.url;
+        self.tab_policy.select(selected.id);
+        #[cfg(feature = "servo-browser")]
+        if let Some(browser) = self.servo_browser.as_ref() {
+            if let Some(Some(page)) = self.servo_pages.get(self.active_tab) {
+                browser.activate(page);
+            }
+        }
+    }
+
+    #[cfg(feature = "servo-browser")]
+    fn drop_suspended_pages(&mut self, ids: &[TabId]) {
+        for id in ids {
+            if let Some(index) = self.tabs.iter().position(|tab| tab.id == *id) {
+                if index != self.active_tab {
+                    self.servo_pages[index] = None;
+                }
+            }
+        }
     }
 
     fn navigate(&mut self) {
