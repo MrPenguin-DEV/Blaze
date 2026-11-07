@@ -99,17 +99,17 @@ pub struct BlazeApp {
 impl Default for BlazeApp {
     fn default() -> Self {
         let mut tab_policy = TabManager::new(MemoryBudget::new(1024), 8);
-        let initial_tab = tab_policy.open("about:blank");
+        let initial_tab = tab_policy.open("https://www.google.com/");
         Self {
             section: Section::Browser,
             tabs: vec![BrowserTab {
                 id: initial_tab,
                 title: "New tab".into(),
-                url: "about:blank".into(),
+                url: "https://www.google.com/".into(),
             }],
             tab_policy,
             active_tab: 0,
-            address: "https://example.com".into(),
+            address: "https://www.google.com/".into(),
             browser_status: "Browser engine not connected yet. The native shell is ready.".into(),
             code_name: "scratch.rs".into(),
             code_source: "fn main() {\n    println!(\"Hello from Blaze!\");\n}\n".into(),
@@ -285,11 +285,11 @@ impl BlazeApp {
                 self.toast = "Bookmark added to this profile.".into();
             }
             if ui.button("+").on_hover_text("New tab").clicked() {
-                let id = self.tab_policy.open("about:blank");
+                let id = self.tab_policy.open("https://www.google.com/");
                 self.tabs.push(BrowserTab {
                     id,
                     title: "New tab".into(),
-                    url: "about:blank".into(),
+                    url: "https://www.google.com/".into(),
                 });
                 self.active_tab = self.tabs.len() - 1;
                 self.address = "about:blank".into();
