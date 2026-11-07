@@ -717,6 +717,9 @@ fn to_servo_modifiers(modifiers: ModifiersState) -> ServoModifiers {
 fn to_servo_key(key: &WinitKey) -> Option<Key> {
     match key {
         WinitKey::Character(value) => Some(Key::Character(value.to_string())),
+        // Winit reports the spacebar as a named key, but Servo expects the
+        // printable character so that its default text-input behavior inserts it.
+        WinitKey::Named(WinitNamedKey::Space) => Some(Key::Character(" ".to_owned())),
         WinitKey::Named(value) => {
             let parsed = format!("{value:?}").parse::<NamedKey>().ok()?;
             Some(Key::Named(parsed))
