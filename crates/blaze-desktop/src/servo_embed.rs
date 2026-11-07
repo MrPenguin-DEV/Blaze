@@ -6,6 +6,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use eframe::egui;
 use euclid::{Box2D, Point2D, Scale};
 use servo::{
     EventLoopWaker, InputEvent, Key, KeyState, KeyboardEvent, MouseButton as ServoMouseButton,
