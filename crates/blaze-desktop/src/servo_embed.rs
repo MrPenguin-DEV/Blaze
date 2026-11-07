@@ -47,6 +47,7 @@ struct EguiGlRenderingContext {
     renderbuffer_id: u32,
     texture_id: u32,
     texture_registered: Cell<bool>,
+    previous_framebuffer: Cell<u32>,
 }
 
 impl EguiGlRenderingContext {
@@ -135,6 +136,7 @@ impl EguiGlRenderingContext {
             renderbuffer_id,
             texture_id,
             texture_registered: Cell::new(false),
+            previous_framebuffer: Cell::new(0),
         })
     }
 
@@ -163,6 +165,14 @@ impl Drop for EguiGlRenderingContext {
 
 impl RenderingContext for EguiGlRenderingContext {
     fn prepare_for_rendering(&self) {
+        // Servo and egui share one GL context. Preserve eframe's active target
+        // so Servo never leaves its offscreen browser FBO bound for UI painting.
+        let mut previous = [0];
+        #[expect(unsafe_code)]
+        unsafe {
+            self.gleam_gl.get_integer_v(gl::FRAMEBUFFER_BINDING, &mut previous);
+        }
+        self.previous_framebuffer.set(previous[0].max(0) as u32);
         self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
     }
 
@@ -227,7 +237,13 @@ impl RenderingContext for EguiGlRenderingContext {
     }
 
     fn present(&self) {
-        // eframe composites the same GL texture later in this frame.
+        // Restore eframe's draw target before egui paints its widgets. Leaving
+        // the browser FBO bound causes UI feedback, trails, flicker and
+        // apparent duplicate/transparent window contents.
+        self.gleam_gl.bind_framebuffer(
+            gl::FRAMEBUFFER,
+            self.previous_framebuffer.get(),
+        );
     }
 
     fn make_current(&self) -> Result<(), surfman::Error> {
