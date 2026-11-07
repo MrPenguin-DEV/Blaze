@@ -14,7 +14,7 @@ use euclid::Scale;
 use servo::{
     EventLoopWaker, InputEvent, Key, KeyState, KeyboardEvent, MouseButton as ServoMouseButton,
     MouseButtonAction, MouseButtonEvent, MouseMoveEvent, NamedKey, NavigationRequest,
-    Servo, ServoBuilder, WebView, WebViewBuilder, WebViewDelegate,
+    RenderingContext, Servo, ServoBuilder, WebView, WebViewBuilder, WebViewDelegate,
     WheelDelta, WheelEvent, WheelMode,
 };
 use tracing::warn;
