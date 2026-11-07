@@ -401,7 +401,7 @@ impl ServoBrowser {
             DeviceIntPoint::new(0, 0),
             DeviceIntPoint::new(size.width as i32, size.height as i32),
         );
-        let image = self
+        let image = page
             .rendering
             .read_to_image(rectangle)
             .ok_or_else(|| "Could not read the rendered browser frame.".to_owned())?;
