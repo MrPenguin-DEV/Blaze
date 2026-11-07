@@ -292,7 +292,7 @@ impl BlazeApp {
                     url: "https://www.google.com/".into(),
                 });
                 self.active_tab = self.tabs.len() - 1;
-                self.address = "about:blank".into();
+                self.address = "https://www.google.com/".into();
                 self.tab_policy.enforce_live_limit();
             }
         });
@@ -1290,11 +1290,11 @@ impl BlazeApp {
                         }
 
                         if self.tabs.is_empty() {
-                            let id = self.tab_policy.open("about:blank");
+                            let id = self.tab_policy.open("https://www.google.com/");
                             self.tabs.push(BrowserTab {
                                 id,
-                                title: "New tab".into(),
-                                url: "about:blank".into(),
+                                title: "Google".into(),
+                                url: "https://www.google.com/".into(),
                             });
                         }
 
