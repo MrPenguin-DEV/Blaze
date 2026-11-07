@@ -23,13 +23,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_inner_size([1440.0, 900.0])
             .with_min_inner_size([980.0, 640.0])
             .with_title("Blaze"),
+        renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
 
     eframe::run_native(
         "Blaze",
         options,
-        Box::new(|_creation_context| Ok(Box::new(app::BlazeApp::default()))),
+        Box::new(|creation_context| Ok(Box::new(app::BlazeApp::new(creation_context)))),
     )?;
 
     Ok(())
