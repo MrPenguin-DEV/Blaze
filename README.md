@@ -7,7 +7,7 @@
 ## What is implemented in this repository
 
 - A native Rust desktop shell rendered with egui/eframe and its wgpu graphics backend. It does not use Electron or an embedded system WebView.
-- The unified `blaze` executable includes the optional Servo 0.7 page-renderer mode with mouse, keyboard and wheel input, HTTP(S)-only navigation, a GStreamer media backend, and per-tab WebViews. It normally retains two warm views (active plus one unpinned tab); pinned background tabs are intentionally exempt from eviction and can raise that count. Older unpinned views are evicted and restored from URL metadata.
+- The unified `blaze` executable embeds Servo 0.7 directly in the Browser panel. Each tab owns a separate WebView and independent navigation history; tabs share one Servo engine and browser storage profile. Mouse, keyboard and wheel input are forwarded in the same window.
 - Browser address validation, safe-scheme filtering, and a strict browser-engine adapter contract.
 - Tab lifecycle policy with foreground/background/suspended states, pinning, unsaved-tab protection, and a configurable live-tab ceiling.
 - A local-file vault using Argon2-derived keys and ChaCha20-Poly1305 authenticated encryption.
@@ -19,13 +19,13 @@
 
 ## Beta status
 
-This is an early Linux-first beta, not a stable daily-driver browser. The one downloadable executable contains the shell and optional Servo mode; the page renderer opens in a second native window/context. The inline browser surface, robust background-page freezing, downloads, hardware-video qualification, and cross-device benchmarks are not complete.
+This is an early Linux-first beta, not a stable daily-driver browser. The one downloadable executable contains the workspace and embedded Servo browser in a single native window. Background-page freezing, downloads, hardware-video qualification, and cross-device benchmarks are not complete.
 
 ## Important implementation limits
 
-Blaze is not yet a complete, daily-usable browser. An optional Servo host can render pages in a separate native window and forwards common pointer and keyboard input, but it is not embedded in the main shell's tab compositor. The main-shell tab strip does not yet own Servo WebViews or process-level tab isolation. When it launches the browser mode, it now passes its saved tab URLs/titles, pin flags, active index, and the origin-permission snapshot. The Servo host restores those URLs in its own window; this is still not an in-process compositor bridge. Downloads remain pending.
+Blaze is not yet a complete, daily-usable browser. Servo now renders inside the Browser panel in the same Blaze window. Each tab owns its own WebView and navigation history, while all tabs share one Servo engine and storage profile (cookies and site storage are not partitioned per tab). Rendering currently uses Servo's software offscreen context, reads RGBA frames back to the CPU, and uploads them to egui's GPU texture; this is an integration path, not a zero-copy GPU bridge, and may affect scrolling/video performance. Downloads remain pending.
 
-The native shell's wgpu renderer accelerates native controls and Wasm-app UI primitives. Servo uses its own rendering context in a separate window. The optional Servo build of the same `blaze` executable enables GStreamer media support; the decoder selected for a YouTube stream depends on codec, installed GStreamer plugins and platform drivers. Hardware decode, GPU-resident frame paths, YouTube compatibility and cross-device performance have not yet been verified. See `docs/VIDEO_ACCELERATION.md` and `scripts/probe-gstreamer-hwdecode.sh`.
+The native shell's wgpu renderer accelerates native controls and Wasm-app UI primitives. Servo renders offscreen through its software rendering context and its frame is uploaded into the shell. The embedded Servo build enables GStreamer media support; the decoder selected for a YouTube stream depends on codec, installed GStreamer plugins and platform drivers. Hardware decode, GPU-resident frame paths, YouTube compatibility and cross-device performance have not yet been verified. See `docs/VIDEO_ACCELERATION.md` and `scripts/probe-gstreamer-hwdecode.sh`.
 
 The office bridge supports tested DOCX/XLSX/PPTX interchange, but advanced layout, charts, themes and embedded media will not round-trip perfectly through Markdown/CSV. Sheets has a bounded formula evaluator, not a complete recalculating workbook engine. Messenger uses WebRTC data channels and requires manual signaling plus independent DTLS fingerprint confirmation. It accepts user-configured STUN/TURN servers and can use relay-only ICE; relay-only hides host/reflexive IP candidates from the peer but the TURN operator still sees the client IP. There is no contact directory, built-in signaling server or calling media. Audio/video call buttons remain disabled.
 
@@ -33,7 +33,7 @@ The Wasm runtime executes compute-only modules and a small Blaze UI-app ABI insi
 
 ## Memory and video target
 
-The aspiration is to keep sleeping tabs and ordinary browsing lean. A universal guarantee of **less than 1 GB while 50 tabs all play 4K video simultaneously** is not credible across arbitrary hardware: active decoders, GPU surfaces, JavaScript heaps, network buffers, and renderer processes consume resources independently. The Servo host retains at most two warm views and evicts older unpinned WebViews; a hidden view is not guaranteed to have its JS timers, media or network activity suspended. Hardware decode and memory measurements still require real-device benchmarks.
+The aspiration is to keep sleeping tabs and ordinary browsing lean. A universal guarantee of **less than 1 GB while 50 tabs all play 4K video simultaneously** is not credible across arbitrary hardware: active decoders, GPU surfaces, JavaScript heaps, network buffers, and renderer processes consume resources independently. The tab scheduler drops suspended background WebViews after the live-tab ceiling is reached and recreates them from their saved URLs when revisited; hidden views are not guaranteed to have their JS timers, media or network activity suspended. Hardware decode and memory measurements still require real-device benchmarks.
 
 ## Build
 
@@ -46,7 +46,7 @@ cargo test --workspace
 cargo run -p blaze-desktop
 
 # Optional Servo page renderer and GStreamer media backend
-cargo build --release -p blaze-desktop --features servo-host --bin blaze
+cargo build --release -p blaze-desktop --features servo-browser --bin blaze
 
 # Launch the workspace shell
 ./target/release/blaze
@@ -55,7 +55,7 @@ cargo build --release -p blaze-desktop --features servo-host --bin blaze
 ./target/release/blaze --servo-host https://example.com
 ```
 
-The optional Servo mode is built into the same `blaze` binary; it opens its own browser window and OpenGL context. It is not an inline page surface in the shell. This feature is a large native build and requires GStreamer development libraries and runtime plugins for your platform. On Linux, the windowing/graphics development packages required by winit/wgpu may need to be installed for your distribution. Hardware acceleration depends on the graphics driver and backend available on the host.
+The embedded Servo browser is built into the same `blaze` binary and appears inside the Browser panel; there is no second Servo host window or `--servo-host` process. This feature is a large native build and requires GStreamer development libraries and runtime plugins for your platform. On Linux, the windowing/graphics development packages required by winit/wgpu may need to be installed for your distribution. Hardware acceleration depends on the graphics driver and backend available on the host.
 
 See [BETA_RELEASE.md](docs/BETA_RELEASE.md) for the v0.0.1 beta scope, build and packaging notes.
 
