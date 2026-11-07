@@ -69,8 +69,8 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
-  servo-host:
-    name: Compile optional Servo browser mode in the unified executable
+  servo-browser:
+    name: Compile embedded Servo browser in the unified executable
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -97,7 +97,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Inspect Fontconfig feature selection
-        run: cargo tree -p blaze-desktop --features servo-host -e features -i yeslogic-fontconfig-sys
+        run: cargo tree -p blaze-desktop --features servo-browser -e features -i yeslogic-fontconfig-sys
 
-      - name: Check Servo host binaries
-        run: cargo check -p blaze-desktop --features servo-host --bin blaze
+      - name: Check embedded Servo browser
+        run: cargo check -p blaze-desktop --features servo-browser --bin blaze
