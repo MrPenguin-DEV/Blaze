@@ -7,16 +7,16 @@
 
 ## What is bundled
 
-The beta archive includes the resolved Cargo lockfile and one executable for the native workspace shell and its optional Servo 0.7 browser mode. The browser mode is started from the same executable with `--servo-host`; the shell's **Open in Servo** action invokes that mode automatically.
+The beta archive includes the resolved Cargo lockfile and one executable for the native workspace shell with Servo 0.7 embedded in the Browser panel. The browser runs inside the same native window; there is no separate Servo host process.
 
-The browser view still uses a second native window and its own OpenGL rendering context. The shell uses eframe/egui/wgpu. This release does not claim an inline browser surface or a direct Servo-to-wgpu zero-copy texture bridge.
+The shell uses eframe/egui/wgpu. Servo renders through a software offscreen context; Blaze reads RGBA frames back and uploads them to an egui texture. This is not a zero-copy GPU bridge and may limit rendering performance.
 
 ## Build from source
 
 Install the Linux graphics, Fontconfig/FreeType and GStreamer development packages listed in `.github/workflows/release.yml`, then run:
 
 ```sh
-cargo build --release -p blaze-desktop --features servo-host --bin blaze
+cargo build --release -p blaze-desktop --features servo-browser --bin blaze
 ```
 
 Check the version and launch the shell:
@@ -38,9 +38,9 @@ The packaged executable still relies on host graphics libraries, Fontconfig/Free
 
 ## Beta limitations
 
-- Browser content is not rendered inside the shell's tab area.
+- Each tab owns a separate WebView and navigation history, but tabs currently share one Servo engine and storage profile; cookies/site storage are not isolated per tab.
 - The page renderer currently supports a limited set of browser shortcuts and no download manager.
-- The warm retained Servo view budget is two for unpinned tabs. Pinned pages can increase that number; hidden pages are not guaranteed to stop background JavaScript or media.
+- Suspended background WebViews are dropped and recreated from URL metadata when revisited. Hidden pages are not guaranteed to stop background JavaScript or media.
 - Hardware decoding and 4K YouTube playback are unverified on real hardware.
 - Calling and full Office editing/fidelity are not complete.
 - The beta is a development preview. Back up important data and do not treat it as a production browser or secure communications product.
