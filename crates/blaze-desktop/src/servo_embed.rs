@@ -205,14 +205,15 @@ impl ServoBrowser {
         page.webview.notify_input_event(InputEvent::Keyboard(event));
     }
 
-    pub fn key_from_egui(key: egui::Key) -> Key {
+    pub fn key_from_egui(key: egui::Key) -> Option<Key> {
         if key == egui::Key::Space {
-            return Key::Character(" ".to_owned());
+            return None;
         }
         format!("{key:?}")
             .parse::<NamedKey>()
+            .ok()
+            .filter(|named| *named != NamedKey::Unidentified)
             .map(Key::Named)
-            .unwrap_or(Key::Named(NamedKey::Unidentified))
     }
 }
 
