@@ -47,3 +47,5 @@ epaint = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
 emath = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
 ecolor = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
 epaint_default_fonts = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
+egui-winit = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
+egui_glow = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
