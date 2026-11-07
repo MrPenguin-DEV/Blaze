@@ -33,12 +33,6 @@ wasmi = "2.0"
 sha2 = "0.10"
 office_oxide = "0.1.16"
 
-# Temporary upstream fix: flush Vello CPU glyph work before rasterization.
-# Keep the patch scoped to epaint; use a fork revision based on the exact
-# crates.io egui 0.37 dependency set to avoid mixing egui/emath versions.
-[patch.crates-io]
-epaint = { git = "https://github.com/Quackdoc/egui", rev = "11c32981caaafedee9ca171b13a91bc73fd71bf6" }
-
 [workspace.lints.rust]
 unsafe_code = "deny"
 
