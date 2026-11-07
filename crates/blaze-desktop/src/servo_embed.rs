@@ -334,6 +334,10 @@ impl ServoBrowser {
         }
 
         self.servo.spin_event_loop();
+        if page.webview.animating() {
+            // Keep animated pages on a steady frame cadence without busy-looping idle tabs.
+            self.egui_context.request_repaint_after(std::time::Duration::from_millis(16));
+        }
         if !page.needs_paint.replace(false) {
             return Ok(());
         }
