@@ -40,7 +40,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
     let requested = env::args()
         .nth(2)
-        .unwrap_or_else(|| "https://example.com/".to_owned());
+        .unwrap_or_else(|| "https://www.google.com/".to_owned());
     let fallback_url = normalize_address(&requested)?;
 
     let mut restored_tabs = env::var("BLAZE_SESSION_TABS")
@@ -189,10 +189,10 @@ impl AppState {
     }
 
     fn new_tab(self: &Rc<Self>) {
-        let url = Url::parse("about:blank").expect("about:blank is valid");
+        let url = Url::parse("https://www.google.com/").expect("Google URL is valid");
         let index = {
             let mut tabs = self.tabs.borrow_mut();
-            tabs.push(ServoTab { title: "New Tab".to_owned(), url: url.to_string(), pinned: false });
+            tabs.push(ServoTab { title: "Google".to_owned(), url: url.to_string(), pinned: false });
             tabs.len() - 1
         };
         self.webviews.borrow_mut().push(None);
@@ -588,8 +588,6 @@ impl ApplicationHandler<WakerEvent> for App {
         let Self::Running(state) = self else {
             return;
         };
-
-        state.servo.spin_event_loop();
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
