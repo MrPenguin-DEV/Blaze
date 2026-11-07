@@ -104,7 +104,7 @@ impl Default for BlazeApp {
             section: Section::Browser,
             tabs: vec![BrowserTab {
                 id: initial_tab,
-                title: "New tab".into(),
+                title: "Google".into(),
                 url: "https://www.google.com/".into(),
             }],
             tab_policy,
@@ -288,7 +288,7 @@ impl BlazeApp {
                 let id = self.tab_policy.open("https://www.google.com/");
                 self.tabs.push(BrowserTab {
                     id,
-                    title: "New tab".into(),
+                    title: "Google".into(),
                     url: "https://www.google.com/".into(),
                 });
                 self.active_tab = self.tabs.len() - 1;
