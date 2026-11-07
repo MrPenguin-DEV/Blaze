@@ -50,9 +50,6 @@ cargo build --release -p blaze-desktop --features servo-browser --bin blaze
 
 # Launch the workspace shell
 ./target/release/blaze
-
-# Launch the bundled Servo browser mode directly
-./target/release/blaze --servo-host https://example.com
 ```
 
 The embedded Servo browser is built into the same `blaze` binary and appears inside the Browser panel; there is no second Servo host window or `--servo-host` process. This feature is a large native build and requires GStreamer development libraries and runtime plugins for your platform. On Linux, the windowing/graphics development packages required by winit/wgpu may need to be installed for your distribution. Hardware acceleration depends on the graphics driver and backend available on the host.
