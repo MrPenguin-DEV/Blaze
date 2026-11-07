@@ -40,4 +40,10 @@ unsafe_code = "deny"
 all = "warn"
 
 [patch.crates-io]
+# Keep every egui-family crate on the same Git revision. Patching only epaint
+# mixes Git and crates.io emath/ecolor types and causes hundreds of type errors.
+egui = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
 epaint = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
+emath = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
+ecolor = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
+epaint_default_fonts = { git = "https://github.com/Quackdoc/egui", branch = "vello_fix" }
