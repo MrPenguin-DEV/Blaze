@@ -26,12 +26,6 @@ Check the version and launch the shell:
 ./target/release/blaze
 ```
 
-Launch the browser mode directly:
-
-```sh
-./target/release/blaze --servo-host https://example.com
-```
-
 ## Runtime dependencies
 
 The packaged executable still relies on host graphics libraries, Fontconfig/FreeType and GStreamer runtime libraries/plugins. On Ubuntu/Debian, install the matching runtime packages, including the GStreamer base/good/bad plugin sets. GPU decode depends on the installed driver and the stream codec. See [VIDEO_ACCELERATION.md](VIDEO_ACCELERATION.md).
