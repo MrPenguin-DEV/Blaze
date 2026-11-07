@@ -25,8 +25,11 @@ use winit::dpi::PhysicalSize;
 use webrender_api::units::{DeviceIntPoint, DeviceIntRect, DevicePoint};
 
 pub struct ServoBrowser {
+    // One Servo engine is shared by every tab; each WebView owns its render target.
     servo: Servo,
-    rendering: Rc<EguiGlRenderingContext>,
+    glow_gl: Arc<glow::Context>,
+    get_proc_address: Arc<dyn Fn(&CStr) -> *const c_void + Send + Sync>,
+    initial_size: PhysicalSize<u32>,
     egui_context: egui::Context,
 }
 
@@ -37,6 +40,7 @@ pub struct ServoPage {
     current_url: Rc<RefCell<String>>,
     title: Rc<RefCell<String>>,
     last_size: Cell<PhysicalSize<u32>>,
+    rendering: Rc<EguiGlRenderingContext>,
 }
 
 struct EguiGlRenderingContext {
@@ -267,14 +271,16 @@ impl ServoBrowser {
         size: PhysicalSize<u32>,
     ) -> Result<Self, String> {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let rendering = Rc::new(EguiGlRenderingContext::new(glow_gl, get_proc_address, size)?);
+        let size = PhysicalSize::new(size.width.max(1), size.height.max(1));
         let servo = ServoBuilder::default()
             .event_loop_waker(Box::new(EguiWaker(ctx.clone())))
             .build();
 
         Ok(Self {
             servo,
-            rendering,
+            glow_gl,
+            get_proc_address,
+            initial_size: size,
             egui_context: ctx,
         })
     }
@@ -293,7 +299,12 @@ impl ServoBrowser {
             title: title.clone(),
         });
 
-        let webview = WebViewBuilder::new(&self.servo, self.rendering.clone())
+        let rendering = Rc::new(EguiGlRenderingContext::new(
+            self.glow_gl.clone(),
+            self.get_proc_address.clone(),
+            self.initial_size,
+        )?);
+        let webview = WebViewBuilder::new(&self.servo, rendering.clone())
             .url(parsed)
             .hidpi_scale_factor(Scale::new(scale))
             .delegate(delegate)
@@ -305,7 +316,8 @@ impl ServoBrowser {
             active,
             current_url,
             title,
-            last_size: Cell::new(self.rendering.size()),
+            last_size: Cell::new(rendering.size()),
+            rendering,
         })
     }
 
@@ -353,17 +365,17 @@ impl ServoBrowser {
             return Ok(None);
         }
 
-        self.rendering
+        page.rendering
             .make_current()
             .map_err(|error| format!("Servo GL context activation: {error:?}"))?;
         page.webview.paint();
-        self.rendering.present();
+        page.rendering.present();
 
         // Do not expose Servo's GL texture directly to egui. The renderers share
         // a context, but not a complete GL-state contract; a native texture can
         // leak stale/undefined contents into the desktop compositor. Copy the
         // completed frame into an egui-owned texture instead.
-        let size = self.rendering.size();
+        let size = page.rendering.size();
         let rectangle = DeviceIntRect::new(
             DeviceIntPoint::new(0, 0),
             DeviceIntPoint::new(size.width as i32, size.height as i32),
