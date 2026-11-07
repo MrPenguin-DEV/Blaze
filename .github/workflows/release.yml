@@ -44,6 +44,12 @@ jobs:
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Reuse compiled dependencies and build artifacts between beta runs.
+          cache-on-failure: true
+
       - name: Install WebAssembly target
         run: rustup target add wasm32-unknown-unknown
 
