@@ -22,7 +22,7 @@ use servo::{
 use tracing::warn;
 use url::Url;
 use winit::dpi::PhysicalSize;
-use webrender_api::units::{DeviceIntRect, DevicePoint};
+use webrender_api::units::{DeviceIntPoint, DeviceIntRect, DevicePoint};
 
 pub struct ServoBrowser {
     servo: Servo,
@@ -46,7 +46,6 @@ struct EguiGlRenderingContext {
     framebuffer_id: u32,
     renderbuffer_id: u32,
     texture_id: u32,
-    texture_registered: Cell<bool>,
     previous_framebuffer: Cell<u32>,
 }
 
@@ -135,7 +134,6 @@ impl EguiGlRenderingContext {
             framebuffer_id,
             renderbuffer_id,
             texture_id,
-            texture_registered: Cell::new(false),
             previous_framebuffer: Cell::new(0),
         })
     }
@@ -147,17 +145,12 @@ impl EguiGlRenderingContext {
         )
     }
 
-    fn mark_texture_registered(&self) {
-        self.texture_registered.set(true);
-    }
 }
 
 impl Drop for EguiGlRenderingContext {
     fn drop(&mut self) {
         self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
-        if !self.texture_registered.get() {
-            self.gleam_gl.delete_textures(&[self.texture_id]);
-        }
+        self.gleam_gl.delete_textures(&[self.texture_id]);
         self.gleam_gl.delete_renderbuffers(&[self.renderbuffer_id]);
         self.gleam_gl.delete_framebuffers(&[self.framebuffer_id]);
     }
@@ -177,10 +170,16 @@ impl RenderingContext for EguiGlRenderingContext {
     }
 
     fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
-        // Screenshots are explicitly requested operations; normal browser frames never call this.
-        self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
+        // Keep the eframe render target intact while copying pixels out of Servo's FBO.
         let width = source_rectangle.width() as usize;
         let height = source_rectangle.height() as usize;
+        let stride = width.checked_mul(4)?;
+        let mut previous = [0];
+        #[expect(unsafe_code)]
+        unsafe {
+            self.gleam_gl.get_integer_v(gl::FRAMEBUFFER_BINDING, &mut previous);
+        }
+        self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
         let mut pixels = self.gleam_gl.read_pixels(
             source_rectangle.min.x,
             source_rectangle.min.y,
@@ -190,8 +189,8 @@ impl RenderingContext for EguiGlRenderingContext {
             gl::UNSIGNED_BYTE,
         );
 
+        self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, previous[0].max(0) as u32);
         let original = pixels.clone();
-        let stride = width.checked_mul(4)?;
         for y in 0..height {
             let destination = y * stride;
             let source = (height - y - 1) * stride;
@@ -280,14 +279,6 @@ impl ServoBrowser {
         })
     }
 
-    pub fn native_texture(&self) -> glow::NativeTexture {
-        self.rendering.native_texture()
-    }
-
-    pub fn mark_texture_registered(&self) {
-        self.rendering.mark_texture_registered();
-    }
-
     pub fn create_page(&self, url: &str, scale: f32) -> Result<ServoPage, String> {
         let parsed = Url::parse(url).map_err(|error| error.to_string())?;
         let needs_paint = Rc::new(Cell::new(true));
@@ -341,7 +332,11 @@ impl ServoBrowser {
         Ok(())
     }
 
-    pub fn render(&self, page: &ServoPage, size: PhysicalSize<u32>) -> Result<(), String> {
+    pub fn render(
+        &self,
+        page: &ServoPage,
+        size: PhysicalSize<u32>,
+    ) -> Result<Option<egui::ColorImage>, String> {
         let size = PhysicalSize::new(size.width.max(1), size.height.max(1));
         if page.last_size.get() != size {
             page.webview.resize(size);
@@ -355,7 +350,7 @@ impl ServoBrowser {
             self.egui_context.request_repaint_after(std::time::Duration::from_millis(16));
         }
         if !page.needs_paint.replace(false) {
-            return Ok(());
+            return Ok(None);
         }
 
         self.rendering
@@ -363,7 +358,26 @@ impl ServoBrowser {
             .map_err(|error| format!("Servo GL context activation: {error:?}"))?;
         page.webview.paint();
         self.rendering.present();
-        Ok(())
+
+        // Do not expose Servo's GL texture directly to egui. The renderers share
+        // a context, but not a complete GL-state contract; a native texture can
+        // leak stale/undefined contents into the desktop compositor. Copy the
+        // completed frame into an egui-owned texture instead.
+        let size = self.rendering.size();
+        let rectangle = DeviceIntRect::new(
+            DeviceIntPoint::new(0, 0),
+            DeviceIntPoint::new(size.width as i32, size.height as i32),
+        );
+        let image = self
+            .rendering
+            .read_to_image(rectangle)
+            .ok_or_else(|| "Could not read the rendered browser frame.".to_owned())?;
+        let dimensions = [image.width() as usize, image.height() as usize];
+        let pixels = image.into_raw();
+        Ok(Some(egui::ColorImage::from_rgba_unmultiplied(
+            dimensions,
+            &pixels,
+        )))
     }
 
     pub fn current_url(&self, page: &ServoPage) -> String {
