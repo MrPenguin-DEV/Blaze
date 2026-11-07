@@ -99,10 +99,8 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Fetch dependencies and patch epaint Vello glyph rendering
-        run: |
-          cargo fetch
-          python3 scripts/patch-epaint-vello.py
+      - name: Fetch dependencies (including Quackdoc epaint Vello fix)
+        run: cargo fetch
 
       - name: Inspect Fontconfig feature selection
         run: cargo tree -p blaze-desktop --features servo-browser -e features -i yeslogic-fontconfig-sys
