@@ -33,6 +33,11 @@ wasmi = "2.0"
 sha2 = "0.10"
 office_oxide = "0.1.16"
 
+# Temporary upstream fix: epaint must flush Vello CPU glyph work when Servo
+# enables vello_cpu/multithreading. Remove after this fix is in a released egui.
+[patch.crates-io]
+epaint = { git = "https://github.com/Quackdoc/egui", rev = "11c32981caaafedee9ca171b13a91bc73fd71bf6" }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
