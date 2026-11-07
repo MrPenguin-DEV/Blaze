@@ -166,9 +166,30 @@ impl RenderingContext for EguiGlRenderingContext {
         self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
     }
 
-    fn read_to_image(&self, _source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
-        // The native GL texture is sampled directly by egui. Never read it back to CPU memory.
-        None
+    fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<RgbaImage> {
+        // Screenshots are explicitly requested operations; normal browser frames never call this.
+        self.gleam_gl.bind_framebuffer(gl::FRAMEBUFFER, self.framebuffer_id);
+        let width = source_rectangle.width() as usize;
+        let height = source_rectangle.height() as usize;
+        let mut pixels = self.gleam_gl.read_pixels(
+            source_rectangle.min.x,
+            source_rectangle.min.y,
+            width as i32,
+            height as i32,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+        );
+
+        let original = pixels.clone();
+        let stride = width.checked_mul(4)?;
+        for y in 0..height {
+            let destination = y * stride;
+            let source = (height - y - 1) * stride;
+            pixels[destination..destination + stride]
+                .copy_from_slice(&original[source..source + stride]);
+        }
+
+        RgbaImage::from_raw(width as u32, height as u32, pixels)
     }
 
     fn size(&self) -> PhysicalSize<u32> {
